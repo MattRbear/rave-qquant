@@ -1,0 +1,51 @@
+﻿[SYSTEM NAME]
+RaveQuant (Currently named: 'RaveQuant - cvd,vwap,liqyudity buckets done')
+
+Purpose:
+Full-stack quantitative trading platform for adversarial market intelligence.
+
+What problem it solves:
+Bridges retail TA and institutional microstructure analysis. Captures raw data, processes it into advanced metrics (CVD, VWAP, Liquidity Buckets), and scores trade setups based on confluence.
+
+Tech stack/runtime:
+Python 3.8+
+
+How to run (exact commands):
+1. Rename folder to 'RaveQuant' (CRITICAL)
+2. run_all.bat (Starts collectors and calculators)
+3. cd Analysis; python signal_dashboard.py (Monitoring)
+4. cd Analysis; python confluence_analyzer.py (Signals)
+
+Entry points:
+- run_all.py (Master Orchestrator)
+- Analysis/confluence_analyzer.py (Signal Generation)
+- Trades_Bot/trades_exporter.py (Data Collection)
+
+Inputs (data sources/files):
+- OKX WebSocket (Trades, Orderbooks)
+- Coinalyze API (Liquidations, OI, Funding)
+
+Outputs (files/db/events):
+- JSONL Vault: Rave_Quant_Vault/raw/..., Rave_Quant_Vault/derived/...
+- Confluence Signals: Analysis/confluence_signals.jsonl
+
+Key modules/files:
+- Analysis/confluence_analyzer.py: 7-layer scoring logic.
+- Liquidity_Buckets/l2_bucketizer.py: Whale wall detection.
+- Untouch_Wick/untouch_wick.py: Core edge detection.
+
+Key calculations (list + where implemented):
+- Confluence Score (0-100): confluence_analyzer.py
+- Liquidity Buckets/Walls: l2_bucketizer.py
+- CVD (Cumulative Volume Delta): CVD/cvd_calculator.py
+- VWAP (Session Anchored): VWAP/vwap_calculator_session.py
+
+Known assumptions:
+- Folder path is C:\Users\M.R Bear\Documents\RaveQuant
+- OKX API keys are set in environment variables.
+- Python is in system PATH.
+
+Risk areas (top 3):
+1. Path Configuration: Hardcoded paths break immediately if folder isn't renamed.
+2. Data Gaps: If collectors crash, history has holes (no backfill logic evident).
+3. Complexity: Many moving parts (7+ scripts) must run simultaneously.

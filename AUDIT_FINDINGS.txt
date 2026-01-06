@@ -1,0 +1,29 @@
+﻿Summary:
+This is a high-value, professional-grade system. It is 95% complete but currently BROKEN due to a trivial path naming issue. The logic for signal generation is mathematically sound and sophisticated (Confluence Scoring).
+
+Findings:
+- [P0] Critical Path Failure
+  Category: Config
+  Evidence: run_all.py:15 -> RAVEQUANT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant")
+  What’s wrong: The script expects the folder to be named 'RaveQuant', but it is currently 'RaveQuant - cvd,vwap,liqyudity buckets done'.
+  Impact: All scripts will fail to find files/modules immediately.
+  Minimal fix suggestion: Rename the parent folder to 'RaveQuant'.
+  Verification step: Run 'python run_all.py --check-only' after renaming.
+
+- [P1] Missing Backfill Logic
+  Category: Reliability
+  Evidence: Trades_Bot/trades_exporter.py (Inferred)
+  What’s wrong: Collectors seem to be real-time only. If the bot stops for 2 hours, that data is lost forever.
+  Impact: VWAP and CVD calculations will be incorrect for the rest of the session.
+  Minimal fix suggestion: Add a startup check to fetch missing historical trades via REST API.
+
+- [P2] Hardcoded Symbol Lists
+  Category: Config
+  Evidence: run_all.py: main() defaults to ['BTC-USDT-SWAP', 'ETH-USDT-SWAP']
+  What’s wrong: Adding a new coin requires editing source code in multiple files.
+  Impact: Slow to deploy to new markets (e.g., SOL, PEPE).
+  Minimal fix suggestion: Move symbol list to a central 'config.json'.
+
+Not checked:
+- API Key validity (Secrets not exposed).
+- WebSocket connection stability over 24h (Requires long-running test).

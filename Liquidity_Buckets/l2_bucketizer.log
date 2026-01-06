@@ -1,0 +1,56 @@
+2025-12-14 19:36:20,573 - L2_Bucketizer - INFO - Processing liquidity buckets for BTC-USDT-SWAP
+2025-12-14 19:36:20,573 - L2_Bucketizer - ERROR - BUILD_FAIL: Missing metadata file: C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault\meta\okx\instruments\BTC-USDT-SWAP.json
+2025-12-14 19:36:20,573 - L2_Bucketizer - ERROR - Error processing BTC-USDT-SWAP: Metadata not found for BTC-USDT-SWAP
+Traceback (most recent call last):
+  File "C:\Users\M.R Bear\Documents\RaveQuant\Liquidity_Buckets\l2_bucketizer.py", line 613, in main
+    process_inst_id(args.instId, since_minutes)
+  File "C:\Users\M.R Bear\Documents\RaveQuant\Liquidity_Buckets\l2_bucketizer.py", line 458, in process_inst_id
+    metadata = load_metadata(inst_id)
+               ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\M.R Bear\Documents\RaveQuant\Liquidity_Buckets\l2_bucketizer.py", line 104, in load_metadata
+    raise FileNotFoundError(f"Metadata not found for {inst_id}")
+FileNotFoundError: Metadata not found for BTC-USDT-SWAP
+2025-12-14 19:36:20,887 - L2_Bucketizer - INFO - Processing liquidity buckets for ETH-USDT-SWAP
+2025-12-14 19:36:20,887 - L2_Bucketizer - ERROR - BUILD_FAIL: Missing metadata file: C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault\meta\okx\instruments\ETH-USDT-SWAP.json
+2025-12-14 19:36:20,887 - L2_Bucketizer - ERROR - Error processing ETH-USDT-SWAP: Metadata not found for ETH-USDT-SWAP
+Traceback (most recent call last):
+  File "C:\Users\M.R Bear\Documents\RaveQuant\Liquidity_Buckets\l2_bucketizer.py", line 613, in main
+    process_inst_id(args.instId, since_minutes)
+  File "C:\Users\M.R Bear\Documents\RaveQuant\Liquidity_Buckets\l2_bucketizer.py", line 458, in process_inst_id
+    metadata = load_metadata(inst_id)
+               ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\M.R Bear\Documents\RaveQuant\Liquidity_Buckets\l2_bucketizer.py", line 104, in load_metadata
+    raise FileNotFoundError(f"Metadata not found for {inst_id}")
+FileNotFoundError: Metadata not found for ETH-USDT-SWAP
+2025-12-14 19:38:49,148 - L2_Bucketizer - INFO - Processing liquidity buckets for BTC-USDT-SWAP
+2025-12-14 19:38:49,149 - L2_Bucketizer - INFO - Loaded metadata: ctVal=0.01
+2025-12-14 19:38:49,149 - L2_Bucketizer - INFO - Loaded state: last_processed=None
+2025-12-14 19:38:49,149 - L2_Bucketizer - WARNING - No L2 files found for BTC-USDT-SWAP
+2025-12-14 19:38:49,428 - L2_Bucketizer - INFO - Processing liquidity buckets for ETH-USDT-SWAP
+2025-12-14 19:38:49,428 - L2_Bucketizer - INFO - Loaded metadata: ctVal=0.1
+2025-12-14 19:38:49,428 - L2_Bucketizer - INFO - Loaded state: last_processed=None
+2025-12-14 19:38:49,429 - L2_Bucketizer - WARNING - No L2 files found for ETH-USDT-SWAP
+2025-12-14 19:42:06,191 - L2_Bucketizer - INFO - Processing liquidity buckets for BTC-USDT-SWAP
+2025-12-14 19:42:06,191 - L2_Bucketizer - INFO - Loaded metadata: ctVal=0.01
+2025-12-14 19:42:06,191 - L2_Bucketizer - INFO - Loaded state: last_processed=None
+2025-12-14 19:42:06,191 - L2_Bucketizer - WARNING - No L2 files found for BTC-USDT-SWAP
+2025-12-14 19:42:06,558 - L2_Bucketizer - INFO - Processing liquidity buckets for ETH-USDT-SWAP
+2025-12-14 19:42:06,558 - L2_Bucketizer - INFO - Loaded metadata: ctVal=0.1
+2025-12-14 19:42:06,558 - L2_Bucketizer - INFO - Loaded state: last_processed=None
+2025-12-14 19:42:06,559 - L2_Bucketizer - WARNING - No L2 files found for ETH-USDT-SWAP
+2025-12-15 05:49:58,791 - L2_Bucketizer - INFO - Processing liquidity buckets for BTC-USDT-SWAP
+2025-12-15 05:49:58,792 - L2_Bucketizer - INFO - Loaded metadata: ctVal=0.01
+2025-12-15 05:49:58,792 - L2_Bucketizer - INFO - Loaded state: last_processed=None
+2025-12-15 05:49:58,792 - L2_Bucketizer - WARNING - No L2 files found for BTC-USDT-SWAP
+2025-12-15 05:50:03,423 - L2_Bucketizer - INFO - Processing liquidity buckets for BTC-USDT-SWAP
+2025-12-15 05:50:03,423 - L2_Bucketizer - INFO - Loaded metadata: ctVal=0.01
+2025-12-15 05:50:03,423 - L2_Bucketizer - INFO - Loaded state: last_processed=None
+2025-12-15 05:50:03,424 - L2_Bucketizer - WARNING - No L2 files found for BTC-USDT-SWAP
+2025-12-15 05:50:18,155 - L2_Bucketizer - INFO - Processing liquidity buckets for ETH-USDT-SWAP
+2025-12-15 05:50:18,156 - L2_Bucketizer - INFO - Loaded metadata: ctVal=0.1
+2025-12-15 05:50:18,156 - L2_Bucketizer - INFO - Loaded state: last_processed=None
+2025-12-15 05:50:18,156 - L2_Bucketizer - WARNING - No L2 files found for ETH-USDT-SWAP
+2025-12-15 05:50:22,531 - L2_Bucketizer - INFO - Processing liquidity buckets for ETH-USDT-SWAP
+2025-12-15 05:50:22,531 - L2_Bucketizer - INFO - Loaded metadata: ctVal=0.1
+2025-12-15 05:50:22,531 - L2_Bucketizer - INFO - Loaded state: last_processed=None
+2025-12-15 05:50:22,531 - L2_Bucketizer - WARNING - No L2 files found for ETH-USDT-SWAP

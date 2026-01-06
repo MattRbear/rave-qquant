@@ -1,0 +1,58 @@
+2025-12-14 19:36:20,501 - Volume_Analyzer - INFO - Processing volume for BTC-USDT-SWAP
+2025-12-14 19:36:20,501 - Volume_Analyzer - INFO - State loaded: last_processed=None
+2025-12-14 19:36:20,501 - Volume_Analyzer - WARNING - No trade files found for BTC-USDT-SWAP
+2025-12-14 19:36:20,826 - Volume_Analyzer - INFO - Processing volume for ETH-USDT-SWAP
+2025-12-14 19:36:20,826 - Volume_Analyzer - INFO - State loaded: last_processed=None
+2025-12-14 19:36:20,826 - Volume_Analyzer - WARNING - No trade files found for ETH-USDT-SWAP
+2025-12-14 19:38:49,090 - Volume_Analyzer - INFO - Processing volume for BTC-USDT-SWAP
+2025-12-14 19:38:49,090 - Volume_Analyzer - INFO - State loaded: last_processed=None
+2025-12-14 19:38:49,090 - Volume_Analyzer - WARNING - No trade files found for BTC-USDT-SWAP
+2025-12-14 19:38:49,373 - Volume_Analyzer - INFO - Processing volume for ETH-USDT-SWAP
+2025-12-14 19:38:49,373 - Volume_Analyzer - INFO - State loaded: last_processed=None
+2025-12-14 19:38:49,373 - Volume_Analyzer - WARNING - No trade files found for ETH-USDT-SWAP
+2025-12-14 19:42:06,114 - Volume_Analyzer - INFO - Processing volume for BTC-USDT-SWAP
+2025-12-14 19:42:06,114 - Volume_Analyzer - INFO - State loaded: last_processed=None
+2025-12-14 19:42:06,114 - Volume_Analyzer - INFO - Found 1 trade files
+2025-12-14 19:42:06,116 - Volume_Analyzer - INFO - Processing 580 new trades
+2025-12-14 19:42:06,128 - Volume_Analyzer - INFO - Processing complete for BTC-USDT-SWAP
+2025-12-14 19:42:06,128 - Volume_Analyzer - INFO - Wrote 2 volume records
+
+2025-12-14 19:42:06,482 - Volume_Analyzer - INFO - Processing volume for ETH-USDT-SWAP
+2025-12-14 19:42:06,483 - Volume_Analyzer - INFO - State loaded: last_processed=None
+2025-12-14 19:42:06,483 - Volume_Analyzer - INFO - Found 1 trade files
+2025-12-14 19:42:06,485 - Volume_Analyzer - INFO - Processing 770 new trades
+2025-12-14 19:42:06,494 - Volume_Analyzer - INFO - Processing complete for ETH-USDT-SWAP
+2025-12-14 19:42:06,494 - Volume_Analyzer - INFO - Wrote 2 volume records
+
+2025-12-15 05:49:50,199 - Volume_Analyzer - INFO - Processing volume for BTC-USDT-SWAP
+2025-12-15 05:49:50,205 - Volume_Analyzer - INFO - State loaded: last_processed=2025-12-15T00:42:04.629000Z
+2025-12-15 05:49:50,205 - Volume_Analyzer - INFO - Found 1 trade files
+2025-12-15 05:49:52,727 - Volume_Analyzer - ERROR - Error parsing trade: Expecting value: line 1 column 1 (char 0)
+2025-12-15 05:49:52,838 - Volume_Analyzer - INFO - Processing 542764 new trades
+2025-12-15 05:49:58,224 - Volume_Analyzer - INFO - Processing volume for BTC-USDT-SWAP
+2025-12-15 05:49:58,224 - Volume_Analyzer - INFO - State loaded: last_processed=2025-12-15T00:42:04.629000Z
+2025-12-15 05:49:58,224 - Volume_Analyzer - INFO - Found 1 trade files
+2025-12-15 05:49:58,632 - Volume_Analyzer - INFO - Processing complete for BTC-USDT-SWAP
+2025-12-15 05:49:58,632 - Volume_Analyzer - INFO - Wrote 607 volume records
+
+2025-12-15 05:50:00,683 - Volume_Analyzer - ERROR - Error parsing trade: Expecting value: line 1 column 1 (char 0)
+2025-12-15 05:50:00,791 - Volume_Analyzer - INFO - Processing 542911 new trades
+2025-12-15 05:50:03,263 - Volume_Analyzer - INFO - Processing complete for BTC-USDT-SWAP
+2025-12-15 05:50:03,263 - Volume_Analyzer - INFO - Wrote 607 volume records
+
+2025-12-15 05:50:09,762 - Volume_Analyzer - INFO - Processing volume for ETH-USDT-SWAP
+2025-12-15 05:50:09,763 - Volume_Analyzer - INFO - State loaded: last_processed=2025-12-15T00:42:05.450000Z
+2025-12-15 05:50:09,764 - Volume_Analyzer - INFO - Found 1 trade files
+2025-12-15 05:50:12,497 - Volume_Analyzer - ERROR - Error parsing trade: Expecting value: line 1 column 1 (char 0)
+2025-12-15 05:50:12,638 - Volume_Analyzer - INFO - Processing 754352 new trades
+2025-12-15 05:50:17,413 - Volume_Analyzer - INFO - Processing volume for ETH-USDT-SWAP
+2025-12-15 05:50:17,413 - Volume_Analyzer - INFO - State loaded: last_processed=2025-12-15T00:42:05.450000Z
+2025-12-15 05:50:17,414 - Volume_Analyzer - INFO - Found 1 trade files
+2025-12-15 05:50:17,980 - Volume_Analyzer - INFO - Processing complete for ETH-USDT-SWAP
+2025-12-15 05:50:17,981 - Volume_Analyzer - INFO - Wrote 608 volume records
+
+2025-12-15 05:50:20,067 - Volume_Analyzer - ERROR - Error parsing trade: Expecting value: line 1 column 1 (char 0)
+2025-12-15 05:50:20,205 - Volume_Analyzer - INFO - Processing 754475 new trades
+2025-12-15 05:50:22,373 - Volume_Analyzer - INFO - Processing complete for ETH-USDT-SWAP
+2025-12-15 05:50:22,373 - Volume_Analyzer - INFO - Wrote 608 volume records
+
