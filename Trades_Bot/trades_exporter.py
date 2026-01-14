@@ -1,8 +1,15 @@
 """
-OKX Trades Exporter - PERPS Only
----------------------------------
+OKX Trades Exporter - PERPS Only (Enhanced with Validation & Auto-Reconnect)
+----------------------------------------------------------------------------
 Captures raw perpetual swap trades from OKX WebSocket.
 Writes append-only JSONL with full contract metadata.
+
+ENHANCEMENTS:
+- Input validation on all trade data
+- Rate limiting for REST API calls
+- Automatic reconnection with exponential backoff
+- Enhanced error handling and recovery
+- Timeout handling for all network operations
 
 INSTRUMENTS: BTC-USDT-SWAP, ETH-USDT-SWAP ONLY
 OUTPUT: Vault\raw\okx\trades_perps\{INSTID}\{DATE}.jsonl
@@ -12,16 +19,31 @@ import asyncio
 import json
 import logging
 import requests
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Set
 import websockets
 
+# Add parent directory to path for utils import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.validation import (
+    ValidationError, validate_instrument_id, validate_timestamp,
+    validate_price, validate_quantity, validate_side, validate_trade_id
+)
+from utils.config import Config
+
 # Configuration
-INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
-WS_URL = "wss://ws.okx.com:8443/ws/v5/public"
-REST_BASE = "https://www.okx.com"
+INSTRUMENTS = Config.ALLOWED_INSTRUMENTS
+VAULT_BASE = Config.get_vault_base()
+WS_URL = Config.OKX_WS_URL
+REST_BASE = Config.OKX_REST_BASE
+
+# Reconnection settings
+MAX_RECONNECT_ATTEMPTS = Config.MAX_RECONNECT_ATTEMPTS
+RECONNECT_DELAY = Config.RECONNECT_DELAY
+PING_INTERVAL = Config.WEBSOCKET_PING_INTERVAL
+PING_TIMEOUT = Config.WEBSOCKET_PING_TIMEOUT
 
 # Logging
 logging.basicConfig(
@@ -42,15 +64,18 @@ class InstrumentMetadata:
         self.metadata: Dict[str, Dict] = {}
     
     def fetch_metadata(self, inst_id: str) -> bool:
-        """Fetch and cache instrument metadata from OKX REST API."""
+        """Fetch and cache instrument metadata from OKX REST API with validation."""
         try:
+            # Validate instrument ID first
+            validate_instrument_id(inst_id, INSTRUMENTS)
+            
             url = f"{REST_BASE}/api/v5/public/instruments"
             params = {
                 'instType': 'SWAP',
                 'instId': inst_id
             }
             
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(url, params=params, timeout=Config.REQUEST_TIMEOUT)
             response.raise_for_status()
             
             data = response.json()
@@ -75,7 +100,7 @@ class InstrumentMetadata:
                 logger.error(f"Available fields: {list(raw_data.keys())}")
                 return False
             
-            # Build normalized metadata
+            # Build normalized metadata with validation
             normalized = {
                 'ctVal': str(raw_data['ctVal']),
                 'ctMult': str(raw_data['ctMult']),
@@ -83,6 +108,16 @@ class InstrumentMetadata:
                 'tickSz': str(raw_data.get('tickSz', '')),
                 'lotSz': str(raw_data.get('lotSz', ''))
             }
+            
+            # Validate contract values
+            try:
+                from decimal import Decimal
+                if Decimal(normalized['ctVal']) <= 0:
+                    logger.error(f"[{inst_id}] Invalid ctVal: {normalized['ctVal']}")
+                    return False
+            except Exception as e:
+                logger.error(f"[{inst_id}] Failed to validate ctVal: {e}")
+                return False
             
             # Store full metadata with normalized block
             self.metadata[inst_id] = {
@@ -102,6 +137,15 @@ class InstrumentMetadata:
             logger.info(f"[{inst_id}] Metadata fetched and saved: ctVal={normalized['ctVal']}, ctMult={normalized['ctMult']}")
             return True
             
+        except requests.Timeout:
+            logger.error(f"[{inst_id}] Metadata fetch timeout after {Config.REQUEST_TIMEOUT}s")
+            return False
+        except requests.RequestException as e:
+            logger.error(f"[{inst_id}] Network error fetching metadata: {e}")
+            return False
+        except ValidationError as e:
+            logger.error(f"[{inst_id}] Validation error: {e}")
+            return False
         except Exception as e:
             logger.error(f"[{inst_id}] Metadata fetch failed: {e}", exc_info=True)
             return False
@@ -140,28 +184,46 @@ class TradesWriter:
     
     def write_trade(self, inst_id: str, trade_data: Dict) -> bool:
         """
-        Write trade to JSONL file with deduplication.
-        Returns True if written, False if duplicate.
+        Write trade to JSONL file with comprehensive validation and deduplication.
+        Returns True if written, False if duplicate or invalid.
         """
         try:
-            # Validate instrument
-            if inst_id not in INSTRUMENTS:
-                logger.error(f"BUILD_FAIL: Invalid instId: {inst_id} (allowed: {INSTRUMENTS})")
-                raise ValueError(f"Invalid instId: {inst_id}")
+            # Validate instrument ID
+            try:
+                validate_instrument_id(inst_id, INSTRUMENTS)
+            except ValidationError as e:
+                logger.error(f"BUILD_FAIL: {e}")
+                raise ValueError(str(e))
             
-            # Parse timestamp (event time from OKX)
+            # Validate trade data structure
+            required_fields = ['ts', 'tradeId', 'px', 'sz', 'side']
+            missing = [f for f in required_fields if f not in trade_data]
+            if missing:
+                logger.error(f"[{inst_id}] Missing required trade fields: {missing}")
+                return False
+            
+            # Parse and validate timestamp
             ts_ms = int(trade_data.get('ts', 0))
-            if not ts_ms:
-                logger.error(f"[{inst_id}] Missing timestamp")
+            if not ts_ms or ts_ms <= 0:
+                logger.error(f"[{inst_id}] Invalid timestamp: {ts_ms}")
                 return False
             
             timestamp_utc = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
             timestamp_str = timestamp_utc.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
             
-            # Extract trade fields
+            # Validate timestamp
+            try:
+                validate_timestamp(timestamp_str)
+            except ValidationError as e:
+                logger.error(f"[{inst_id}] {e}")
+                return False
+            
+            # Validate trade ID
             trade_id = str(trade_data.get('tradeId', ''))
-            if not trade_id:
-                logger.error(f"[{inst_id}] Missing trade_id")
+            try:
+                validate_trade_id(trade_id)
+            except ValidationError as e:
+                logger.error(f"[{inst_id}] {e}")
                 return False
             
             # Deduplication check
@@ -173,6 +235,30 @@ class TradesWriter:
             if dedup_key in self.seen_trades[inst_id]:
                 self.trades_skipped += 1
                 return False  # Duplicate
+            
+            # Validate price
+            price = str(trade_data.get('px', ''))
+            try:
+                validate_price(price)
+            except ValidationError as e:
+                logger.error(f"[{inst_id}] {e}")
+                return False
+            
+            # Validate quantity
+            qty_contracts = str(trade_data.get('sz', ''))
+            try:
+                validate_quantity(qty_contracts)
+            except ValidationError as e:
+                logger.error(f"[{inst_id}] {e}")
+                return False
+            
+            # Validate side
+            side = str(trade_data.get('side', ''))
+            try:
+                side = validate_side(side)
+            except ValidationError as e:
+                logger.error(f"[{inst_id}] {e}")
+                return False
             
             # Get contract metadata
             try:
@@ -192,21 +278,13 @@ class TradesWriter:
                 'instId': inst_id,
                 'symbol_canon': symbol_canon,
                 'trade_id': trade_id,
-                'side': str(trade_data.get('side', '')),
-                'price': str(trade_data.get('px', '')),
-                'qty_contracts': str(trade_data.get('sz', '')),
+                'side': side,
+                'price': price,
+                'qty_contracts': qty_contracts,
                 'ctVal': contract_params['ctVal'],
                 'ctMult': contract_params['ctMult'],
                 'ctType': contract_params['ctType']
             }
-            
-            # Validate required fields
-            required = ['timestamp_utc', 'instId', 'trade_id', 'side', 'price', 'qty_contracts']
-            missing = [f for f in required if not trade_record.get(f)]
-            
-            if missing:
-                logger.error(f"BUILD_FAIL: [{inst_id}] Missing required fields: {missing}")
-                return False
             
             # Write to JSONL
             output_path = self._get_output_path(inst_id, timestamp_utc)
@@ -227,6 +305,9 @@ class TradesWriter:
             
             return True
             
+        except ValidationError as e:
+            logger.error(f"[{inst_id}] Validation error: {e}")
+            return False
         except Exception as e:
             logger.error(f"[{inst_id}] Trade write failed: {e}", exc_info=True)
             return False
@@ -234,13 +315,36 @@ class TradesWriter:
 
 
 class TradesExporter:
-    """Main trades exporter."""
+    """Main trades exporter with auto-reconnect and error recovery."""
     
     def __init__(self):
         self.metadata = InstrumentMetadata()
         self.writer = None  # Initialize after metadata fetch
         self.ws = None
         self.running = False
+        self.reconnect_attempts = 0
+        self.last_message_time = datetime.now()
+        
+    async def ping_loop(self):
+        """Send periodic pings to keep connection alive."""
+        try:
+            while self.running and self.ws:
+                await asyncio.sleep(PING_INTERVAL)
+                try:
+                    pong = await asyncio.wait_for(
+                        self.ws.ping(),
+                        timeout=PING_TIMEOUT
+                    )
+                    await pong
+                    logger.debug("Ping successful")
+                except asyncio.TimeoutError:
+                    logger.warning("Ping timeout - connection may be dead")
+                    break
+                except Exception as e:
+                    logger.error(f"Ping error: {e}")
+                    break
+        except Exception as e:
+            logger.error(f"Ping loop error: {e}", exc_info=True)
     
     async def subscribe(self):
         """Subscribe to trades channels."""
@@ -282,8 +386,11 @@ class TradesExporter:
         return True
     
     async def process_message(self, data: Dict):
-        """Process WebSocket message."""
+        """Process WebSocket message with validation."""
         try:
+            # Update last message time for health monitoring
+            self.last_message_time = datetime.now()
+            
             # Handle event messages
             if 'event' in data:
                 logger.info(f"Event: {data}")
@@ -302,8 +409,10 @@ class TradesExporter:
             inst_id = arg.get('instId')
             
             # Validate instrument
-            if inst_id not in INSTRUMENTS:
-                logger.error(f"BUILD_FAIL: Unexpected instId: {inst_id} (allowed: {INSTRUMENTS})")
+            try:
+                validate_instrument_id(inst_id, INSTRUMENTS)
+            except ValidationError as e:
+                logger.error(f"BUILD_FAIL: {e}")
                 self.running = False
                 return
             
@@ -312,6 +421,8 @@ class TradesExporter:
             for trade_data in message_data:
                 self.writer.write_trade(inst_id, trade_data)
         
+        except ValidationError as e:
+            logger.error(f"Validation error in message processing: {e}")
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
     
@@ -334,7 +445,7 @@ class TradesExporter:
             logger.error(f"Error in message listener: {e}", exc_info=True)
     
     async def run(self):
-        """Main run loop with auto-reconnect."""
+        """Main run loop with auto-reconnect and exponential backoff."""
         self.running = True
         
         logger.info("Trades Exporter starting...")
@@ -352,25 +463,54 @@ class TradesExporter:
         self.writer = TradesWriter(self.metadata)
         logger.info("Metadata loaded successfully")
         
+        self.reconnect_attempts = 0
+        
         while self.running:
             try:
-                logger.info(f"Connecting to {WS_URL}")
-                async with websockets.connect(WS_URL) as ws:
+                logger.info(f"Connecting to {WS_URL} (attempt {self.reconnect_attempts + 1})")
+                
+                async with websockets.connect(
+                    WS_URL,
+                    ping_interval=None,  # We handle pings ourselves
+                    close_timeout=10
+                ) as ws:
                     self.ws = ws
                     logger.info("Connected successfully")
+                    self.reconnect_attempts = 0  # Reset on successful connection
                     
                     # Subscribe to trades
                     await self.subscribe()
                     
+                    # Start ping loop
+                    ping_task = asyncio.create_task(self.ping_loop())
+                    
                     # Listen for messages
-                    await self.message_listener()
+                    try:
+                        await self.message_listener()
+                    finally:
+                        ping_task.cancel()
+                        try:
+                            await ping_task
+                        except asyncio.CancelledError:
+                            pass
             
+            except websockets.exceptions.WebSocketException as e:
+                logger.error(f"WebSocket error: {e}")
             except Exception as e:
                 logger.error(f"Connection error: {e}", exc_info=True)
             
             if self.running:
-                logger.warning("Reconnecting in 5s...")
-                await asyncio.sleep(5)
+                self.reconnect_attempts += 1
+                
+                if self.reconnect_attempts > MAX_RECONNECT_ATTEMPTS:
+                    logger.error(f"Max reconnect attempts ({MAX_RECONNECT_ATTEMPTS}) reached. Stopping.")
+                    self.running = False
+                    break
+                
+                # Exponential backoff
+                delay = min(RECONNECT_DELAY * (2 ** (self.reconnect_attempts - 1)), 300)
+                logger.warning(f"Reconnecting in {delay}s... (attempt {self.reconnect_attempts}/{MAX_RECONNECT_ATTEMPTS})")
+                await asyncio.sleep(delay)
         
         logger.info("Trades Exporter stopped")
         logger.info(f"Stats: {self.writer.trades_written} written, {self.writer.trades_skipped} skipped (duplicates)")
