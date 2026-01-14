@@ -6,20 +6,101 @@
 
 ---
 
+## SETUP
+
+### Prerequisites
+- Python 3.12 or higher
+- pip (Python package manager)
+- Git
+
+### Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/MattRbear/rave-qquant.git
+   cd rave-qquant
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   # Install dependencies for each component
+   pip install -r Trades_Bot/requirements.txt
+   pip install -r coinayalze_bot/requirements.txt
+   ```
+
+3. **Configure environment variables:**
+   
+   Create a `.env` file in the root directory or set environment variables:
+   
+   ```bash
+   # Required for OKX data collection
+   OKX_API_KEY=your_okx_api_key
+   OKX_SECRET_KEY=your_okx_secret_key
+   OKX_PASSPHRASE=your_okx_passphrase
+   
+   # Required for Coinalyze bot
+   COINALYZE_API_KEY=your_coinalyze_api_key
+   
+   # Optional: Future whale alert integration
+   # WHALE_ALERT_API_KEY=your_whale_alert_api_key
+   # ALCHEMY_API_KEY=your_alchemy_api_key
+   # ETHERSCAN_API_KEY=your_etherscan_api_key
+   # MORALIS_API_KEY=your_moralis_api_key
+   ```
+
+4. **Create vault directory structure:**
+   ```bash
+   mkdir -p Rave_Quant_Vault/{raw,derived,state,inbox,meta}
+   ```
+
+### Running Tests
+
+```bash
+# Run all tests (when test suite is available)
+pytest -q
+
+# Run specific test file
+pytest path/to/test_file.py -v
+
+# Run with coverage
+pytest --cov=. --cov-report=html
+```
+
+### Local Development
+
+```bash
+# Start all collectors and calculators
+python run_all.py
+
+# Start only specific components
+cd Trades_Bot && python trades_exporter.py
+cd coinayalze_bot && python coinalyze_bot.py
+
+# Check system health
+cd Analysis && python signal_dashboard.py
+
+# Generate signals
+cd Analysis && python confluence_analyzer.py
+```
+
+---
+
 ## QUICK START
 
 ```bash
-cd C:\Users\M.R Bear\Documents\RaveQuant
+# Navigate to repository
+cd rave-qquant
 
 # Start everything
-run_all.bat
+python run_all.py
+# Or on Windows: run_all.bat
 
-# Check system health
+# Wait 5 minutes for data accumulation, then check system health
 cd Analysis
-run_dashboard.bat
+python signal_dashboard.py
 
 # Find trade signals
-run_confluence.bat
+python confluence_analyzer.py
 ```
 
 ---
@@ -132,33 +213,6 @@ STORAGE:
 - **Output:** Console display
 - **What:** Real-time system health, data freshness, current state
 - **Run:** `cd Analysis && python signal_dashboard.py`
-
----
-
-## ARCHITECTURE
-
-### **Storage Pattern (JSONL + State)**
-
-**Every component follows:**
-```
-Input:  Vault\raw\{source}\{type}\{INSTID}\{DATE}.jsonl       (append-only)
-        └─ One JSON object per line
-
-Process: [Calculator reads, processes, outputs]
-
-Output: Vault\derived\{metric}\{exchange}\{market}\{INSTID}\{output}.jsonl
-        └─ One JSON object per line (append-only)
-
-State:  Vault\state\{metric}\{exchange}\{market}\{INSTID}.state.json
-        └─ Cursor + metadata (for incremental processing)
-```
-
-**Why JSONL?**
-- Append-only (no corruption)
-- Human-readable (debug-friendly)
-- Deterministic (same input = same output)
-- No database overhead
-- Portable (just files)
 
 ---
 
@@ -327,6 +381,202 @@ run_confluence.bat
 8. Poor highs/lows (if desired)
 9. Position management system
 10. Performance tracking
+
+---
+
+## ARCHITECTURE
+
+### Waterfall + Gates Pattern
+
+RaveQuant follows a **validation waterfall** architecture where each stage acts as a gate, filtering out low-value events before expensive API calls:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Stage 1: Event Trigger (Free)                                   │
+│ ├─ WhaleAlert Webhook                                           │
+│ ├─ OKX WebSocket (Trades, L2)                                   │
+│ └─ Coinalyze API (Rate Limited, 40/min)                         │
+└────────────┬────────────────────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Stage 2: Threshold Filter (Instant)                             │
+│ ├─ Amount >= $100k for whale alerts                             │
+│ ├─ Volume tier >= T3 for trade signals                          │
+│ └─ Early exit for low-value events                              │
+└────────────┬────────────────────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Stage 3: WebSocket Validation (Cheap, Existing Connection)      │
+│ ├─ Alchemy WebSocket (no API quota consumed)                    │
+│ ├─ Real-time blockchain state validation                        │
+│ └─ Filter false positives                                       │
+└────────────┬────────────────────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Stage 4: Multicall Validation (Moderate Cost)                   │
+│ ├─ Alchemy Multicall (batched queries)                          │
+│ ├─ Verify contract state, balances                              │
+│ └─ Rate limited but cheaper than individual calls               │
+└────────────┬────────────────────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Stage 5: Decode & Enrich (Rate Limited)                         │
+│ ├─ Etherscan API (5 calls/sec limit)                            │
+│ ├─ ABI + proxy detection (cached)                               │
+│ └─ Contract verification                                        │
+└────────────┬────────────────────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Stage 6: Deep Analysis (Expensive, Rare)                        │
+│ ├─ Moralis API (budget tracked, $$$)                            │
+│ ├─ Dune Analytics (query credits, $$$)                          │
+│ └─ Only for high-value validated events                         │
+└────────────┬────────────────────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Stage 7: Scoring & Alert                                        │
+│ ├─ Confluence scoring (0-100)                                   │
+│ ├─ Idempotent DB insertion (dedupe key)                         │
+│ └─ Alert delivery (Postgres/TimescaleDB)                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Design Principles
+
+1. **Fail-Closed:** On budget exhaustion or API errors → degrade gracefully, log reason, continue
+2. **Idempotent:** Same input produces same output; safe to retry/replay
+3. **Rate-Limited:** Token bucket pattern for all API calls (see `coinayalze_bot/coinalyze_bot.py`)
+4. **Append-Only:** JSONL storage prevents corruption, enables replay
+5. **State Cursors:** Incremental processing from last known position
+
+### Data Flow
+
+```
+Raw Data → Validation → Enrichment → Scoring → Storage
+   ↓           ↓            ↓           ↓          ↓
+ JSONL      Early Exit    Cache Hit   Dedupe    Alert
+(append)    (< threshold) (ABI/Proxy) (DB key)  (TimescaleDB)
+```
+
+### Rate Limiting Strategy
+
+- **Coinalyze:** 40 calls/min, enforced via sliding window
+- **Etherscan:** 5 calls/sec, token bucket with backoff
+- **Moralis/Dune:** Budget tracked per-call, fail when exhausted
+- **WebSockets:** No limit, but connection pool managed
+
+### Storage Pattern (JSONL + State)
+
+**Every component follows:**
+```
+Input:  Vault\raw\{source}\{type}\{INSTID}\{DATE}.jsonl       (append-only)
+        └─ One JSON object per line
+
+Process: [Calculator reads, processes, outputs]
+
+Output: Vault\derived\{metric}\{exchange}\{market}\{INSTID}\{output}.jsonl
+        └─ One JSON object per line (append-only)
+
+State:  Vault\state\{metric}\{exchange}\{market}\{INSTID}.state.json
+        └─ Cursor + metadata (for incremental processing)
+```
+
+**Why JSONL?**
+- Append-only prevents corruption
+- Human-readable for debugging
+- Deterministic: same input = same output
+- No database overhead
+- Portable (just files)
+
+---
+
+## AUDIT TRAIL
+
+### Logging Architecture
+
+Every component uses **structured logging** to maintain a complete audit trail:
+
+```python
+# Example from coinalyze_bot.py
+logger.info("whale_alert_processed", extra={
+    "alert_id": "abc123",
+    "amount_usd": 1500000,
+    "dedupe_key": "whale_abc123_1234567890",
+    "stage": "enrichment",
+    "api_calls": 3,
+    "budget_consumed": 0.05
+})
+```
+
+### What Gets Logged
+
+1. **All API Calls:**
+   - Endpoint, method, response time
+   - Rate limit status (calls remaining)
+   - Budget consumed (for paid APIs)
+   - Success/failure with error details
+
+2. **All Data Processing:**
+   - Input record ID/timestamp
+   - Processing stage (validation, enrichment, scoring)
+   - Output result (dedupe key, score)
+   - Any skipped/filtered records with reason
+
+3. **All State Changes:**
+   - Cursor position updates
+   - Cache hits/misses (ABI, proxy)
+   - Database operations (insert, conflict)
+
+4. **All Failures:**
+   - Exception type and stack trace
+   - Context at time of failure
+   - Recovery action taken
+   - Impact assessment (data loss, delay)
+
+### Log Storage
+
+- **Component logs:** Each module writes to `{module_name}.log` in its directory
+- **Structured format:** JSON lines for machine parsing
+- **Rotation:** Daily rotation with 30-day retention
+- **Centralized (future):** Aggregate to TimescaleDB for analysis
+
+### Replay & Debugging
+
+Because all inputs are append-only JSONL with state cursors:
+
+```bash
+# Replay processing from specific timestamp
+cd CVD
+python cvd_calculator.py --instId BTC-USDT-SWAP --since 2024-01-01T00:00:00
+
+# Debug specific alert
+grep "alert_id.*abc123" */**.log
+
+# Verify idempotency (run twice, check dedupe)
+python process.py --input data.jsonl
+python process.py --input data.jsonl  # Should produce identical state
+```
+
+### Budget & Rate Limit Tracking
+
+Track API consumption in real-time:
+
+```bash
+# Check Coinalyze rate limit status
+tail -f coinayalze_bot/coinalyze_bot.log | grep rate_limit
+
+# Monitor budget consumption
+grep "budget_consumed" */**.log | jq -s 'map(.budget_consumed) | add'
+
+# Alert on budget threshold
+grep "budget_exhausted" */**.log
+```
 
 ---
 
