@@ -1,8 +1,16 @@
 """
-Coinalyze Data Bot - Adversarial Market Intelligence
+Coinalyze Data Bot - Adversarial Market Intelligence (Enhanced)
+---------------------------------------------------------------
 Fetches: OI, Liquidations, Funding, Bull/Bear Ratio
 Targets: BTC, ETH only
 Storage: Append-only vault/inbox architecture
+
+ENHANCEMENTS:
+- Improved rate limiting with SlidingWindowRateLimiter
+- Retry logic with exponential backoff
+- Input validation on API responses
+- Better error handling and recovery
+- Timeout handling for all requests
 """
 
 import os
@@ -10,9 +18,16 @@ import time
 import json
 import requests
 import logging
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
+
+# Add parent directory to path for utils import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.validation import ValidationError, validate_positive_int
+from utils.rate_limiter import SlidingWindowRateLimiter, retry_with_backoff
+from utils.config import Config
 
 # Logging configuration
 logging.basicConfig(
@@ -28,14 +43,12 @@ logger = logging.getLogger('Coinalyze_Bot')
 
 class CoinalyzeBot:
     """
-    Coinalyze market data fetcher.
+    Coinalyze market data fetcher with enhanced error handling.
     Tracks OI, liquidations, funding, and bull/bear ratio for BTC & ETH.
     """
     
     # API Configuration
-    BASE_URL = "https://api.coinalyze.net"
-    RATE_LIMIT = 40  # calls per minute
-    RATE_WINDOW = 60  # seconds
+    BASE_URL = Config.COINALYZE_BASE_URL
     
     # Symbols - using aggregated perpetual contracts
     # Format: {COIN}USDT_PERP.A (A = aggregated across exchanges)
@@ -48,16 +61,24 @@ class CoinalyzeBot:
     INTERVAL_1MIN = "1min"
     INTERVAL_5MIN = "5min"
     
-    def __init__(self, api_key: str, vault_base_path: str = r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault"):
+    def __init__(self, api_key: str, vault_base_path: Optional[str] = None):
         """
         Initialize Coinalyze bot.
         
         Args:
             api_key: Coinalyze API key
-            vault_base_path: Base path for vault storage (default: centralized RaveQuant vault)
+            vault_base_path: Base path for vault storage (optional, uses config default)
         """
+        if not api_key:
+            raise ValueError("API key cannot be empty")
+        
         self.api_key = api_key
-        self.vault_base = Path(vault_base_path)
+        
+        # Use config path if not specified
+        if vault_base_path:
+            self.vault_base = Path(vault_base_path)
+        else:
+            self.vault_base = Config.get_vault_base()
         
         # Create inbox directories
         self.inbox_paths = {
@@ -70,8 +91,12 @@ class CoinalyzeBot:
         for path in self.inbox_paths.values():
             path.mkdir(parents=True, exist_ok=True)
         
-        # Rate limiting
-        self.request_times: List[float] = []
+        # Enhanced rate limiting with sliding window
+        self.rate_limiter = SlidingWindowRateLimiter(
+            max_calls=Config.COINALYZE_RATE_LIMIT,
+            time_window=Config.COINALYZE_RATE_WINDOW,
+            min_interval=1.0  # At least 1 second between calls
+        )
         
         # Health tracking
         self.stats = {
@@ -79,30 +104,14 @@ class CoinalyzeBot:
             'successful_requests': 0,
             'failed_requests': 0,
             'rate_limit_hits': 0,
+            'validation_errors': 0,
+            'network_errors': 0,
             'last_fetch_time': None
         }
     
-    def _enforce_rate_limit(self):
-        """Enforce 40 requests per minute rate limit."""
-        current_time = time.time()
-        
-        # Remove requests outside the window
-        self.request_times = [t for t in self.request_times 
-                              if current_time - t < self.RATE_WINDOW]
-        
-        # Check if at limit
-        if len(self.request_times) >= self.RATE_LIMIT:
-            sleep_time = self.RATE_WINDOW - (current_time - self.request_times[0])
-            if sleep_time > 0:
-                logger.warning(f"Rate limit reached. Sleeping {sleep_time:.2f}s")
-                self.stats['rate_limit_hits'] += 1
-                time.sleep(sleep_time + 0.1)  # Add buffer
-        
-        self.request_times.append(current_time)
-    
     def _make_request(self, endpoint: str, params: Dict) -> Optional[Dict]:
         """
-        Make API request with rate limiting and error handling.
+        Make API request with rate limiting, retries, and error handling.
         
         Args:
             endpoint: API endpoint (e.g., '/open-interest-history')
@@ -111,40 +120,76 @@ class CoinalyzeBot:
         Returns:
             JSON response or None on failure
         """
-        self._enforce_rate_limit()
+        # Acquire rate limit permission (blocking)
+        if not self.rate_limiter.acquire(blocking=True, timeout=60):
+            logger.error("Failed to acquire rate limit permission within 60s")
+            self.stats['rate_limit_hits'] += 1
+            return None
         
         # Add API key to params
         params['api_key'] = self.api_key
         
         url = f"{self.BASE_URL}{endpoint}"
         
-        try:
+        def make_single_request():
             self.stats['total_requests'] += 1
-            response = requests.get(url, params=params, timeout=30)
+            response = requests.get(url, params=params, timeout=Config.REQUEST_TIMEOUT)
+            response.raise_for_status()
+            return response.json()
+        
+        try:
+            # Use retry logic with exponential backoff
+            data = retry_with_backoff(
+                make_single_request,
+                max_retries=3,
+                initial_delay=1.0,
+                max_delay=30.0,
+                exceptions=(requests.RequestException,),
+                logger_func=logger.warning
+            )
             
-            if response.status_code == 200:
-                self.stats['successful_requests'] += 1
-                return response.json()
-            elif response.status_code == 429:
+            # Validate response
+            if not isinstance(data, (list, dict)):
+                logger.error(f"Invalid response type: {type(data)}")
+                self.stats['validation_errors'] += 1
+                return None
+            
+            self.stats['successful_requests'] += 1
+            return data
+            
+        except requests.Timeout:
+            logger.error(f"Request timeout after {Config.REQUEST_TIMEOUT}s: {endpoint}")
+            self.stats['failed_requests'] += 1
+            self.stats['network_errors'] += 1
+            return None
+            
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:
                 # Rate limit hit despite our checks
-                retry_after = response.headers.get('Retry-After', 60)
+                retry_after = e.response.headers.get('Retry-After', 60)
                 logger.error(f"API rate limit hit. Retry after {retry_after}s")
-                self.stats['failed_requests'] += 1
+                self.stats['rate_limit_hits'] += 1
                 time.sleep(int(retry_after))
-                return None
             else:
-                logger.error(f"API error {response.status_code}: {response.text}")
-                self.stats['failed_requests'] += 1
-                return None
-                
+                logger.error(f"HTTP error: {e}")
+            
+            self.stats['failed_requests'] += 1
+            return None
+            
+        except requests.RequestException as e:
+            logger.error(f"Network error: {e}")
+            self.stats['failed_requests'] += 1
+            self.stats['network_errors'] += 1
+            return None
+            
         except Exception as e:
-            logger.error(f"Request failed: {e}")
+            logger.error(f"Unexpected error in request: {e}", exc_info=True)
             self.stats['failed_requests'] += 1
             return None
     
     def _save_to_inbox(self, data_type: str, symbol: str, data: List[Dict]):
         """
-        Save data to appropriate inbox folder (append-only).
+        Save data to appropriate inbox folder (append-only) with validation.
         
         Args:
             data_type: 'oi', 'funding', 'liqs', or 'bullbear'
@@ -154,32 +199,61 @@ class CoinalyzeBot:
         if not data:
             return
         
+        # Validate data_type
+        if data_type not in self.inbox_paths:
+            logger.error(f"Invalid data_type: {data_type}")
+            return
+        
+        # Validate symbol
+        if symbol not in ['BTC', 'ETH']:
+            logger.error(f"Invalid symbol: {symbol}")
+            return
+        
         inbox_path = self.inbox_paths[data_type]
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"{symbol}_{data_type}_{timestamp}.jsonl"
         filepath = inbox_path / filename
         
-        # Write as JSON Lines (one JSON object per line)
-        with open(filepath, 'a') as f:
-            for item in data:
-                f.write(json.dumps(item) + '\n')
-        
-        logger.info(f"Saved {len(data)} {data_type} records for {symbol} to {filename}")
+        try:
+            # Write as JSON Lines (one JSON object per line)
+            with open(filepath, 'a') as f:
+                for item in data:
+                    # Basic validation
+                    if not isinstance(item, dict):
+                        logger.warning(f"Skipping non-dict item: {item}")
+                        continue
+                    
+                    f.write(json.dumps(item) + '\n')
+            
+            logger.info(f"Saved {len(data)} {data_type} records for {symbol} to {filename}")
+            
+        except IOError as e:
+            logger.error(f"Failed to write to {filepath}: {e}")
+        except Exception as e:
+            logger.error(f"Error saving data: {e}", exc_info=True)
     
     def fetch_open_interest(self, symbol: str, interval: str = "1min", 
                            lookback_minutes: int = 60) -> Optional[List[Dict]]:
         """
-        Fetch Open Interest history.
+        Fetch Open Interest history with validation.
         
         Args:
             symbol: 'BTC' or 'ETH'
             interval: Time interval (default: 1min)
             lookback_minutes: How far back to fetch
         """
-        symbol_code = self.SYMBOLS.get(symbol)
-        if not symbol_code:
-            logger.error(f"Invalid symbol: {symbol}")
+        # Validate inputs
+        if symbol not in self.SYMBOLS:
+            logger.error(f"Invalid symbol: {symbol}. Allowed: {list(self.SYMBOLS.keys())}")
             return None
+        
+        try:
+            validate_positive_int(lookback_minutes, "lookback_minutes")
+        except ValidationError as e:
+            logger.error(f"Validation error: {e}")
+            return None
+        
+        symbol_code = self.SYMBOLS[symbol]
         
         now = int(time.time())
         from_ts = now - (lookback_minutes * 60)
@@ -195,12 +269,34 @@ class CoinalyzeBot:
         response = self._make_request('/open-interest-history', params)
         
         if response:
-            # Extract data from response
-            for item in response:
-                if item['symbol'] == symbol_code:
-                    history = item.get('history', [])
-                    self._save_to_inbox('oi', symbol, history)
-                    return history
+            try:
+                # Validate response structure
+                if not isinstance(response, list):
+                    logger.error(f"Expected list response, got {type(response)}")
+                    return None
+                
+                # Extract data from response
+                for item in response:
+                    if not isinstance(item, dict):
+                        logger.warning(f"Skipping invalid item: {item}")
+                        continue
+                    
+                    if item.get('symbol') == symbol_code:
+                        history = item.get('history', [])
+                        
+                        if not isinstance(history, list):
+                            logger.error(f"Invalid history type: {type(history)}")
+                            return None
+                        
+                        self._save_to_inbox('oi', symbol, history)
+                        return history
+                
+                logger.warning(f"No data found for symbol {symbol_code}")
+                return None
+                
+            except Exception as e:
+                logger.error(f"Error processing response: {e}", exc_info=True)
+                return None
         
         return None
     
@@ -353,10 +449,11 @@ class CoinalyzeBot:
         logger.info(f"{'='*60}\n")
     
     def get_stats(self) -> Dict:
-        """Get bot statistics."""
+        """Get bot statistics including rate limiter status."""
+        usage = self.rate_limiter.get_usage()
         return {
             **self.stats,
-            'rate_limit_usage': f"{len(self.request_times)}/{self.RATE_LIMIT} per minute"
+            'rate_limit_usage': f"{usage[0]}/{usage[1]} in window"
         }
     
     def print_stats(self):
