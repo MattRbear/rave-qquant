@@ -216,33 +216,6 @@ STORAGE:
 
 ---
 
-## ARCHITECTURE
-
-### **Storage Pattern (JSONL + State)**
-
-**Every component follows:**
-```
-Input:  Vault\raw\{source}\{type}\{INSTID}\{DATE}.jsonl       (append-only)
-        └─ One JSON object per line
-
-Process: [Calculator reads, processes, outputs]
-
-Output: Vault\derived\{metric}\{exchange}\{market}\{INSTID}\{output}.jsonl
-        └─ One JSON object per line (append-only)
-
-State:  Vault\state\{metric}\{exchange}\{market}\{INSTID}.state.json
-        └─ Cursor + metadata (for incremental processing)
-```
-
-**Why JSONL?**
-- Append-only (no corruption)
-- Human-readable (debug-friendly)
-- Deterministic (same input = same output)
-- No database overhead
-- Portable (just files)
-
----
-
 ## MASTER RUNNER
 
 **Location:** `run_all.py` + `run_all.bat`
@@ -497,6 +470,29 @@ Raw Data → Validation → Enrichment → Scoring → Storage
 - **Etherscan:** 5 calls/sec, token bucket with backoff
 - **Moralis/Dune:** Budget tracked per-call, fail when exhausted
 - **WebSockets:** No limit, but connection pool managed
+
+### Storage Pattern (JSONL + State)
+
+**Every component follows:**
+```
+Input:  Vault\raw\{source}\{type}\{INSTID}\{DATE}.jsonl       (append-only)
+        └─ One JSON object per line
+
+Process: [Calculator reads, processes, outputs]
+
+Output: Vault\derived\{metric}\{exchange}\{market}\{INSTID}\{output}.jsonl
+        └─ One JSON object per line (append-only)
+
+State:  Vault\state\{metric}\{exchange}\{market}\{INSTID}.state.json
+        └─ Cursor + metadata (for incremental processing)
+```
+
+**Why JSONL?**
+- Append-only prevents corruption
+- Human-readable for debugging
+- Deterministic: same input = same output
+- No database overhead
+- Portable (just files)
 
 ---
 
