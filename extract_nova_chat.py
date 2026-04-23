@@ -216,6 +216,44 @@ def match_topics(text: str) -> tuple[Set[str], float]:
 # RECORD EXTRACTORS
 # ============================================================================
 
+def _extract_from_json_list(data: list, filepath: Path, input_root: Path) -> Iterator[Dict[str, Any]]:
+    """Helper to extract records from a JSON list."""
+    for idx, item in enumerate(data):
+        if isinstance(item, dict):
+            yield format_record(item, filepath, input_root, 'openai_export_json', idx)
+        elif isinstance(item, str):
+            yield {
+                'text': item,
+                'source_file': str(filepath.relative_to(input_root)),
+                'detected_format': 'json_array',
+                'message_index': idx
+            }
+
+def _extract_from_json_dict(data: dict, filepath: Path, input_root: Path) -> Iterator[Dict[str, Any]]:
+    """Helper to extract records from a JSON dict."""
+    if 'messages' in data:
+        messages = data['messages']
+        conv_id = data.get('id') or data.get('conversation_id')
+        for idx, msg in enumerate(messages):
+            record = format_record(msg, filepath, input_root, 'openai_export_json', idx)
+            if conv_id:
+                record['conversation_id'] = conv_id
+            yield record
+
+    elif 'conversations' in data:
+        for conv in data['conversations']:
+            conv_id = conv.get('id')
+            messages = conv.get('messages', [])
+            for idx, msg in enumerate(messages):
+                record = format_record(msg, filepath, input_root, 'openai_export_json', idx)
+                if conv_id:
+                    record['conversation_id'] = conv_id
+                yield record
+
+    else:
+        # Fallback: extract any text-like fields
+        yield format_record(data, filepath, input_root, 'json_dict', 0)
+
 def extract_from_json(filepath: Path, input_root: Path) -> Iterator[Dict[str, Any]]:
     """Extract records from JSON file."""
     try:
@@ -227,42 +265,10 @@ def extract_from_json(filepath: Path, input_root: Path) -> Iterator[Dict[str, An
         
         # Try to detect structure
         if isinstance(data, list):
-            # Array of messages
-            for idx, item in enumerate(data):
-                if isinstance(item, dict):
-                    yield format_record(item, filepath, input_root, 'openai_export_json', idx)
-                elif isinstance(item, str):
-                    yield {
-                        'text': item,
-                        'source_file': str(filepath.relative_to(input_root)),
-                        'detected_format': 'json_array',
-                        'message_index': idx
-                    }
+            yield from _extract_from_json_list(data, filepath, input_root)
         
         elif isinstance(data, dict):
-            # Check for common chat export structures
-            if 'messages' in data:
-                messages = data['messages']
-                conv_id = data.get('id') or data.get('conversation_id')
-                for idx, msg in enumerate(messages):
-                    record = format_record(msg, filepath, input_root, 'openai_export_json', idx)
-                    if conv_id:
-                        record['conversation_id'] = conv_id
-                    yield record
-            
-            elif 'conversations' in data:
-                for conv in data['conversations']:
-                    conv_id = conv.get('id')
-                    messages = conv.get('messages', [])
-                    for idx, msg in enumerate(messages):
-                        record = format_record(msg, filepath, input_root, 'openai_export_json', idx)
-                        if conv_id:
-                            record['conversation_id'] = conv_id
-                        yield record
-            
-            else:
-                # Fallback: extract any text-like fields
-                yield format_record(data, filepath, input_root, 'json_dict', 0)
+            yield from _extract_from_json_dict(data, filepath, input_root)
     
     except json.JSONDecodeError as e:
         logger.warning(f"JSON decode error in {filepath}: {e}")
