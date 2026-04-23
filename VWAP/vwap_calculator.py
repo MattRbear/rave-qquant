@@ -93,6 +93,10 @@ class VWAPState:
     last_trade_id: Optional[str]
     last_minute_processed: Optional[str]  # ISO minute timestamp
     last_session_date: Optional[str]  # YYYY-MM-DD for session tracking
+    anchor_time: Optional[str] = None
+    anchor_sum_price_volume: Optional[str] = None
+    anchor_sum_volume: Optional[str] = None
+    anchor_trade_count: Optional[int] = None
 
 
 def floor_to_midnight_utc(ts: datetime) -> datetime:
@@ -232,54 +236,76 @@ class AnchoredWindow:
     or a pump initiation). This metric is psychologically potent as it represents
     the average entry price of all participants since the specific event."
     
-    NOTE: Currently stores all trades since anchor. For production use on long
-    timeframes (weeks+), consider periodic state snapshots to limit memory.
+    NOTE: Maintains O(1) memory complexity by updating state accumulators
+    rather than storing all trades since the anchor point.
     """
     
     def __init__(self, anchor_time: Optional[datetime] = None):
         self.anchor_time = anchor_time
-        self.trades: List[Trade] = []
+        self.sum_price_volume = Decimal('0')
+        self.sum_volume = Decimal('0')
+        self.trade_count = 0
     
     def set_anchor(self, anchor_time: datetime):
-        """Set anchor time and clear trades."""
+        """Set anchor time and clear accumulators."""
         self.anchor_time = anchor_time
-        self.trades.clear()
+        self.sum_price_volume = Decimal('0')
+        self.sum_volume = Decimal('0')
+        self.trade_count = 0
         logger.info(f"AVWAP anchor set: {anchor_time.isoformat()}")
-    
+
+    def load_snapshot(self, state: VWAPState):
+        """Load periodic state snapshot to limit memory."""
+        if self.anchor_time is None or state.anchor_time is None:
+            return
+
+        # Only restore snapshot if the anchor time matches
+        if self.anchor_time.isoformat().replace('+00:00', 'Z') == state.anchor_time:
+            if state.anchor_sum_price_volume is not None:
+                self.sum_price_volume = Decimal(state.anchor_sum_price_volume)
+            if state.anchor_sum_volume is not None:
+                self.sum_volume = Decimal(state.anchor_sum_volume)
+            if state.anchor_trade_count is not None:
+                self.trade_count = state.anchor_trade_count
+            logger.info(f"Loaded AVWAP snapshot: {self.trade_count} trades")
+
+    def save_snapshot(self, state: VWAPState):
+        """Save periodic state snapshot."""
+        if self.anchor_time is not None:
+            state.anchor_time = self.anchor_time.isoformat().replace('+00:00', 'Z')
+            state.anchor_sum_price_volume = str(self.sum_price_volume)
+            state.anchor_sum_volume = str(self.sum_volume)
+            state.anchor_trade_count = self.trade_count
+
     def add_trade(self, trade: Trade):
         """Add trade if after anchor time."""
         if self.anchor_time is None:
             return
         
         if trade.timestamp >= self.anchor_time:
-            self.trades.append(trade)
+            notional = trade.notional
+            price = trade.price_decimal
+
+            self.sum_price_volume += price * notional
+            self.sum_volume += notional
+            self.trade_count += 1
     
     def calculate_vwap(self) -> Optional[Decimal]:
         """
         Calculate anchored VWAP.
         AVWAP_t = Σ(from t₀ to t) (Pi × Vi) / Σ(from t₀ to t) Vi
         """
-        if not self.trades or self.anchor_time is None:
+        if self.trade_count == 0 or self.anchor_time is None:
             return None
-        
-        sum_price_volume = Decimal('0')
-        sum_volume = Decimal('0')
-        
-        for trade in self.trades:
-            notional = trade.notional
-            price = trade.price_decimal
             
-            sum_price_volume += price * notional
-            sum_volume += notional
-        
-        if sum_volume == 0:
+        if self.sum_volume == Decimal('0'):
             return None
         
-        return sum_price_volume / sum_volume
+        return self.sum_price_volume / self.sum_volume
     
     def get_trade_count(self) -> int:
         """Get number of trades since anchor."""
-        return len(self.trades)
+        return self.trade_count
 
 
 def load_state(inst_id: str) -> VWAPState:
@@ -300,6 +326,16 @@ def load_state(inst_id: str) -> VWAPState:
     # Handle old state files without session tracking
     if 'last_session_date' not in data:
         data['last_session_date'] = None
+
+    # Handle older state files without anchored VWAP tracking
+    if 'anchor_time' not in data:
+        data['anchor_time'] = None
+    if 'anchor_sum_price_volume' not in data:
+        data['anchor_sum_price_volume'] = None
+    if 'anchor_sum_volume' not in data:
+        data['anchor_sum_volume'] = None
+    if 'anchor_trade_count' not in data:
+        data['anchor_trade_count'] = None
     
     return VWAPState(**data)
 
@@ -314,7 +350,11 @@ def save_state(inst_id: str, state: VWAPState):
             'last_timestamp_utc': state.last_timestamp_utc,
             'last_trade_id': state.last_trade_id,
             'last_minute_processed': state.last_minute_processed,
-            'last_session_date': state.last_session_date
+            'last_session_date': state.last_session_date,
+            'anchor_time': state.anchor_time,
+            'anchor_sum_price_volume': state.anchor_sum_price_volume,
+            'anchor_sum_volume': state.anchor_sum_volume,
+            'anchor_trade_count': state.anchor_trade_count
         }, f, indent=2)
 
 
@@ -455,6 +495,7 @@ def process_inst_id(inst_id: str, anchor_time: Optional[str] = None):
     if anchor_time:
         anchor_dt = datetime.fromisoformat(anchor_time.replace('Z', '+00:00'))
         window_anchored = AnchoredWindow(anchor_dt)
+        window_anchored.load_snapshot(state)
         logger.info(f"Anchored VWAP enabled: t₀ = {anchor_time}")
     
     # Get trade files
@@ -537,6 +578,10 @@ def process_inst_id(inst_id: str, anchor_time: Optional[str] = None):
     if current_minute is not None:
         state.last_minute_processed = current_minute.strftime('%Y-%m-%dT%H:%M:00Z')
     
+    # Save snapshot of anchored VWAP accumulators
+    if window_anchored:
+        window_anchored.save_snapshot(state)
+
     # Save state
     save_state(inst_id, state)
     
