@@ -329,41 +329,54 @@ def read_trade_files(inst_id: str) -> List[Path]:
     return files
 
 
+def _should_skip_trade(data: dict, state: VolumeState) -> bool:
+    """Check if trade should be skipped based on state cursor."""
+    if not state.last_processed_timestamp_utc:
+        return False
+
+    if data['timestamp_utc'] < state.last_processed_timestamp_utc:
+        return True
+
+    if data['timestamp_utc'] == state.last_processed_timestamp_utc:
+        if state.last_trade_id and data.get('trade_id', '') <= state.last_trade_id:
+            return True
+
+    return False
+
+
+def _parse_trade_line(line: str, state: VolumeState) -> Optional[Trade]:
+    """Parse a single trade line, returning None if skipped or invalid."""
+    if not line.strip():
+        return None
+
+    try:
+        data = json.loads(line)
+
+        if _should_skip_trade(data, state):
+            return None
+
+        return Trade(
+            timestamp_utc=data['timestamp_utc'],
+            instId=data['instId'],
+            side=data['side'],
+            price=data['price'],
+            qty_contracts=data['qty_contracts'],
+            ctVal=data['ctVal']
+        )
+    except Exception as e:
+        logger.error(f"Error parsing trade: {e}")
+        return None
+
+
 def parse_trades(filepath: Path, state: VolumeState) -> List[Trade]:
     """Parse trades from JSONL, filtering to new trades only."""
     trades = []
     
     with open(filepath, 'r') as f:
         for line in f:
-            if not line.strip():
-                continue
-            
-            try:
-                data = json.loads(line)
-                
-                # Skip if before cursor
-                if state.last_processed_timestamp_utc:
-                    if data['timestamp_utc'] < state.last_processed_timestamp_utc:
-                        continue
-                    
-                    if data['timestamp_utc'] == state.last_processed_timestamp_utc:
-                        if state.last_trade_id and data.get('trade_id', '') <= state.last_trade_id:
-                            continue
-                
-                trade = Trade(
-                    timestamp_utc=data['timestamp_utc'],
-                    instId=data['instId'],
-                    side=data['side'],
-                    price=data['price'],
-                    qty_contracts=data['qty_contracts'],
-                    ctVal=data['ctVal']
-                )
-                
+            trade = _parse_trade_line(line, state)
+            if trade:
                 trades.append(trade)
-            
-            except Exception as e:
-                logger.error(f"Error parsing trade: {e}")
-                continue
     
     return trades
 
