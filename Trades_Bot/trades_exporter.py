@@ -13,6 +13,7 @@ import json
 import logging
 import requests
 from datetime import datetime, timezone
+from itertools import islice
 from pathlib import Path
 from typing import Dict, Set
 import websockets
@@ -221,9 +222,8 @@ class TradesWriter:
             # Limit memory (keep last 10k per instrument)
             if len(self.seen_trades[inst_id]) > 10000:
                 # Remove oldest 5k
-                to_remove = list(self.seen_trades[inst_id])[:5000]
-                for key in to_remove:
-                    self.seen_trades[inst_id].discard(key)
+                to_remove = list(islice(self.seen_trades[inst_id], 5000))
+                self.seen_trades[inst_id].difference_update(to_remove)
             
             return True
             
