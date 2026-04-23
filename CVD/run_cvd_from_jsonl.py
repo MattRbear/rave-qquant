@@ -208,10 +208,13 @@ def calculate_cvd_updates(trades: List[Trade], start_cvd: Decimal) -> Dict[datet
     return windows
 
 
+_cvd_windows_cache: Dict[Path, set] = {}
+
+
 def write_cvd_outputs(symbol: str, windows: Dict[datetime, tuple[Decimal, Decimal]]):
     """
     Write CVD outputs to derived/cvd/okx/{symbol}/1m/YYYY-MM-DD.jsonl
-    Deduplicates by reading existing file first and only appending new windows.
+    Deduplicates by checking against an in-memory cache and only appending new windows.
     
     OUTPUT FORMAT:
     - cvd_value: Cumulative volume delta (never resets)
@@ -232,17 +235,26 @@ def write_cvd_outputs(symbol: str, windows: Dict[datetime, tuple[Decimal, Decima
     
     for date_str, date_windows in by_date.items():
         output_dir = VAULT_BASE / 'derived' / 'cvd' / 'okx' / symbol / '1m'
+        output_dir.mkdir(parents=True, exist_ok=True)
         output_file = output_dir / f'{date_str}.jsonl'
         
-        # Read existing windows to deduplicate
-        existing_windows = set()
-        if output_file.exists():
-            with open(output_file, 'r') as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    data = json.loads(line)
-                    existing_windows.add(data['window_start_utc'])
+        # Initialize cache for this file if not present
+        if output_file not in _cvd_windows_cache:
+            existing_windows = set()
+            if output_file.exists():
+                with open(output_file, 'r') as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        # Fast string extraction instead of json.loads
+                        idx = line.find('"window_start_utc": "')
+                        if idx != -1:
+                            start_idx = idx + 21
+                            end_idx = line.find('"', start_idx)
+                            existing_windows.add(line[start_idx:end_idx])
+            _cvd_windows_cache[output_file] = existing_windows
+
+        existing_windows = _cvd_windows_cache[output_file]
         
         # Write new windows only
         with open(output_file, 'a') as f:
@@ -262,6 +274,7 @@ def write_cvd_outputs(symbol: str, windows: Dict[datetime, tuple[Decimal, Decima
                 }
                 
                 f.write(json.dumps(record) + '\n')
+                existing_windows.add(window_str)
                 total_written += 1
     
     return total_written

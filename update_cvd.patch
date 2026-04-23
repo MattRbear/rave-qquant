@@ -1,0 +1,89 @@
+<<<<<<< SEARCH
+def write_cvd_outputs(symbol: str, windows: Dict[datetime, tuple[Decimal, Decimal]]):
+    """
+    Write CVD outputs to derived/cvd/okx/{symbol}/1m/YYYY-MM-DD.jsonl
+    Deduplicates by reading existing file first and only appending new windows.
+=======
+_cvd_windows_cache: Dict[Path, set] = {}
+
+def write_cvd_outputs(symbol: str, windows: Dict[datetime, tuple[Decimal, Decimal]]):
+    """
+    Write CVD outputs to derived/cvd/okx/{symbol}/1m/YYYY-MM-DD.jsonl
+    Deduplicates by checking against an in-memory cache and only appending new windows.
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+    for date_str, date_windows in by_date.items():
+        output_dir = VAULT_BASE / 'derived' / 'cvd' / 'okx' / symbol / '1m'
+        output_file = output_dir / f'{date_str}.jsonl'
+
+        # Read existing windows to deduplicate
+        existing_windows = set()
+        if output_file.exists():
+            with open(output_file, 'r') as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    data = json.loads(line)
+                    existing_windows.add(data['window_start_utc'])
+
+        # Write new windows only
+        with open(output_file, 'a') as f:
+=======
+    for date_str, date_windows in by_date.items():
+        output_dir = VAULT_BASE / 'derived' / 'cvd' / 'okx' / symbol / '1m'
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = output_dir / f'{date_str}.jsonl'
+
+        # Initialize cache for this file if not present
+        if output_file not in _cvd_windows_cache:
+            existing_windows = set()
+            if output_file.exists():
+                with open(output_file, 'r') as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        # Fast string extraction instead of json.loads
+                        idx = line.find('"window_start_utc": "')
+                        if idx != -1:
+                            start_idx = idx + 21
+                            end_idx = line.find('"', start_idx)
+                            existing_windows.add(line[start_idx:end_idx])
+            _cvd_windows_cache[output_file] = existing_windows
+
+        existing_windows = _cvd_windows_cache[output_file]
+
+        # Write new windows only
+        with open(output_file, 'a') as f:
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+                if window_str in existing_windows:
+                    continue  # Skip duplicate
+
+                record = {
+                    'window_start_utc': window_str,
+                    'cvd_value': str(cvd_value),
+                    'cvd_delta': str(delta_value),
+                    'symbol': symbol.replace('-', '/'),
+                    'exchange': 'okx',
+                    'timeframe': '1m'
+                }
+
+                f.write(json.dumps(record) + '\n')
+                total_written += 1
+=======
+                if window_str in existing_windows:
+                    continue  # Skip duplicate
+
+                record = {
+                    'window_start_utc': window_str,
+                    'cvd_value': str(cvd_value),
+                    'cvd_delta': str(delta_value),
+                    'symbol': symbol.replace('-', '/'),
+                    'exchange': 'okx',
+                    'timeframe': '1m'
+                }
+
+                f.write(json.dumps(record) + '\n')
+                existing_windows.add(window_str)
+                total_written += 1
+>>>>>>> REPLACE
