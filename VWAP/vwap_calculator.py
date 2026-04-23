@@ -370,6 +370,21 @@ def parse_trades(filepath: Path, state: VWAPState) -> List[Trade]:
     return trades
 
 
+def _is_minute_written(output_file: Path, minute_str: str) -> bool:
+    """Helper to check if a specific minute is already written to the given output file."""
+    if not output_file.exists():
+        return False
+
+    with open(output_file, 'r') as f:
+        for line in f:
+            if not line.strip():
+                continue
+            data = json.loads(line)
+            if data.get('window_start_utc') == minute_str:
+                return True
+    return False
+
+
 def write_vwap_output(inst_id: str, minute_ts: datetime, 
                       vwap_session: Optional[Decimal],
                       vwap_1h: Optional[Decimal], 
@@ -394,14 +409,8 @@ def write_vwap_output(inst_id: str, minute_ts: datetime,
     minute_str = minute_ts.strftime('%Y-%m-%dT%H:%M:00Z')
     
     # Check if this minute already exists in output
-    if output_file.exists():
-        with open(output_file, 'r') as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                data = json.loads(line)
-                if data.get('window_start_utc') == minute_str:
-                    return  # Already written
+    if _is_minute_written(output_file, minute_str):
+        return  # Already written
     
     # Build VWAP record
     vwap_record = {
