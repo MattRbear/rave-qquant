@@ -1,4 +1,4 @@
-"""
+r"""
 OKX Trades Exporter - PERPS Only
 ---------------------------------
 Captures raw perpetual swap trades from OKX WebSocket.
@@ -9,6 +9,7 @@ OUTPUT: Vault\raw\okx\trades_perps\{INSTID}\{DATE}.jsonl
 """
 
 import asyncio
+import os
 import json
 import logging
 import requests
@@ -19,7 +20,7 @@ import websockets
 
 # Configuration
 INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(os.environ.get("RAVEQUANT_VAULT", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
 WS_URL = "wss://ws.okx.com:8443/ws/v5/public"
 REST_BASE = "https://www.okx.com"
 

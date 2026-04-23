@@ -1,4 +1,4 @@
-"""
+r"""
 Coinalyze Data Bot - Adversarial Market Intelligence
 Fetches: OI, Liquidations, Funding, Bull/Bear Ratio
 Targets: BTC, ETH only
@@ -48,7 +48,7 @@ class CoinalyzeBot:
     INTERVAL_1MIN = "1min"
     INTERVAL_5MIN = "5min"
     
-    def __init__(self, api_key: str, vault_base_path: str = r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault"):
+    def __init__(self, api_key: str, vault_base_path: str = os.environ.get("RAVEQUANT_VAULT", str(Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))):
         """
         Initialize Coinalyze bot.
         

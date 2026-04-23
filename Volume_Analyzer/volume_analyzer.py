@@ -1,4 +1,4 @@
-"""
+r"""
 Volume Analyzer - Adversarial Volume Intelligence
 --------------------------------------------------
 Reads raw trades, computes volume metrics with intensity classification.
@@ -15,6 +15,7 @@ STATE: Vault\state\volume\okx\perps\{INSTID}.state.json
 """
 
 import json
+import os
 import logging
 from pathlib import Path
 from decimal import Decimal, getcontext
@@ -28,7 +29,7 @@ import argparse
 getcontext().prec = 50
 
 # Paths
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(os.environ.get("RAVEQUANT_VAULT", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
 
 # Thresholds
 WHALE_THRESHOLD_USD = Decimal('100000')  # $100k+ = whale
