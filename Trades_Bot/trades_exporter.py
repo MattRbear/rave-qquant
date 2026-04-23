@@ -124,7 +124,39 @@ class TradesWriter:
         self.seen_trades: Dict[str, Set[str]] = {}  # inst_id -> set of trade_ids
         self.trades_written = 0
         self.trades_skipped = 0
+        # Tracks current file path and open handle per inst_id
+        self._open_files = {}
     
+    def _get_file_handle(self, inst_id: str, output_path: Path):
+        """Get or open the file handle for the given instrument and path."""
+        # Ensure path is a string for comparison
+        path_str = str(output_path)
+
+        if inst_id in self._open_files:
+            current_path, current_handle = self._open_files[inst_id]
+            if current_path == path_str:
+                return current_handle
+            else:
+                # Close old file because the day has rotated
+                try:
+                    current_handle.close()
+                except Exception as e:
+                    logger.error(f"[{inst_id}] Error closing rotated file {current_path}: {e}")
+
+        # Open new file
+        f = open(output_path, 'a')
+        self._open_files[inst_id] = (path_str, f)
+        return f
+
+    def close_all(self):
+        """Close all open file handles."""
+        for inst_id, (path, handle) in self._open_files.items():
+            try:
+                handle.close()
+            except Exception as e:
+                logger.error(f"[{inst_id}] Error closing file {path}: {e}")
+        self._open_files.clear()
+
     def _get_output_path(self, inst_id: str, timestamp_utc: datetime) -> Path:
         """Get output file path for trade."""
         date_str = timestamp_utc.strftime('%Y-%m-%d')
@@ -211,8 +243,9 @@ class TradesWriter:
             # Write to JSONL
             output_path = self._get_output_path(inst_id, timestamp_utc)
             
-            with open(output_path, 'a') as f:
-                f.write(json.dumps(trade_record) + '\n')
+            f = self._get_file_handle(inst_id, output_path)
+            f.write(json.dumps(trade_record) + '\n')
+            f.flush()
             
             # Track written trade
             self.seen_trades[inst_id].add(dedup_key)
@@ -379,6 +412,8 @@ class TradesExporter:
         """Stop the exporter."""
         logger.info("Stopping Trades Exporter...")
         self.running = False
+        if self.writer:
+            self.writer.close_all()
 
 
 async def main():
