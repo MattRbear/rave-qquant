@@ -330,6 +330,22 @@ def read_trade_files(inst_id: str) -> List[Path]:
     return files
 
 
+def _is_new_trade(trade: Trade, state: VWAPState) -> bool:
+    """Check if trade is after the state cursor."""
+    if state.last_timestamp_utc is None:
+        return True
+
+    if trade.timestamp_utc < state.last_timestamp_utc:
+        return False
+
+    if trade.timestamp_utc == state.last_timestamp_utc:
+        if state.last_trade_id is not None:
+            if trade.trade_id <= state.last_trade_id:
+                return False
+
+    return True
+
+
 def parse_trades(filepath: Path, state: VWAPState) -> List[Trade]:
     """
     Read trades from JSONL file.
@@ -354,16 +370,8 @@ def parse_trades(filepath: Path, state: VWAPState) -> List[Trade]:
                 logger.warning(f"Skipping invalid trade data at line {line_num}: {e}")
                 continue
             
-            # Skip if before or equal to cursor
-            if state.last_timestamp_utc is not None:
-                if trade.timestamp_utc < state.last_timestamp_utc:
-                    continue
-                
-                if trade.timestamp_utc == state.last_timestamp_utc:
-                    # Same timestamp - check trade_id
-                    if state.last_trade_id is not None:
-                        if trade.trade_id <= state.last_trade_id:
-                            continue
+            if not _is_new_trade(trade, state):
+                continue
             
             trades.append(trade)
     
