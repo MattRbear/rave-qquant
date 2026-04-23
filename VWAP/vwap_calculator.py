@@ -422,6 +422,50 @@ def write_vwap_output(inst_id: str, minute_ts: datetime,
         f.write(json.dumps(vwap_record) + '\n')
 
 
+def _process_minute_transition(
+    inst_id: str,
+    trade_minute: datetime,
+    current_minute: Optional[datetime],
+    state: 'VWAPState',
+    window_session: 'SessionWindow',
+    window_1h: 'RollingWindow',
+    window_4h: 'RollingWindow',
+    vwap_outputs: int
+) -> tuple[Optional[datetime], int, bool]:
+    """
+    Handles minute transitions, writing VWAP output if a new minute is reached.
+    Returns (new_current_minute, new_vwap_outputs, should_continue).
+    """
+    if current_minute is None or trade_minute > current_minute:
+        # Skip if this minute was already processed
+        if state.last_minute_processed is not None:
+            last_minute = datetime.fromisoformat(state.last_minute_processed.replace('Z', '+00:00'))
+            if trade_minute <= last_minute:
+                return trade_minute, vwap_outputs, True
+
+        # Calculate VWAPs for this minute
+        vwap_session = window_session.calculate_vwap()
+        vwap_1h = window_1h.calculate_vwap()
+        vwap_4h = window_4h.calculate_vwap()
+
+        # Write output
+        write_vwap_output(
+            inst_id,
+            trade_minute,
+            vwap_session,
+            vwap_1h,
+            vwap_4h,
+            window_session.get_trade_count(),
+            window_1h.get_trade_count(),
+            window_4h.get_trade_count()
+        )
+
+        vwap_outputs += 1
+        current_minute = trade_minute
+
+    return current_minute, vwap_outputs, False
+
+
 def process_inst_id(inst_id: str, anchor_time: Optional[str] = None):
     """
     Main processing loop for an instrument.
@@ -500,33 +544,18 @@ def process_inst_id(inst_id: str, anchor_time: Optional[str] = None):
         window_4h.trim_to_window(trade.timestamp)
         
         # Check if we've moved to a new minute
-        if current_minute is None or trade_minute > current_minute:
-            # Skip if this minute was already processed
-            if state.last_minute_processed is not None:
-                last_minute = datetime.fromisoformat(state.last_minute_processed.replace('Z', '+00:00'))
-                if trade_minute <= last_minute:
-                    current_minute = trade_minute
-                    continue
-            
-            # Calculate VWAPs for this minute
-            vwap_session = window_session.calculate_vwap()
-            vwap_1h = window_1h.calculate_vwap()
-            vwap_4h = window_4h.calculate_vwap()
-            
-            # Write output
-            write_vwap_output(
-                inst_id,
-                trade_minute,
-                vwap_session,
-                vwap_1h,
-                vwap_4h,
-                window_session.get_trade_count(),
-                window_1h.get_trade_count(),
-                window_4h.get_trade_count()
-            )
-            
-            vwap_outputs += 1
-            current_minute = trade_minute
+        current_minute, vwap_outputs, should_continue = _process_minute_transition(
+            inst_id,
+            trade_minute,
+            current_minute,
+            state,
+            window_session,
+            window_1h,
+            window_4h,
+            vwap_outputs
+        )
+        if should_continue:
+            continue
         
         # Update state with this trade
         state.last_timestamp_utc = trade.timestamp_utc
