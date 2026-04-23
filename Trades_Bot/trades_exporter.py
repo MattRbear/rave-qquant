@@ -5,7 +5,7 @@ Captures raw perpetual swap trades from OKX WebSocket.
 Writes append-only JSONL with full contract metadata.
 
 INSTRUMENTS: BTC-USDT-SWAP, ETH-USDT-SWAP ONLY
-OUTPUT: Vault\raw\okx\trades_perps\{INSTID}\{DATE}.jsonl
+OUTPUT: Vault\\raw\\okx\\trades_perps\\{INSTID}\\{DATE}.jsonl
 """
 
 import asyncio
@@ -41,7 +41,7 @@ class InstrumentMetadata:
     def __init__(self):
         self.metadata: Dict[str, Dict] = {}
     
-    def fetch_metadata(self, inst_id: str) -> bool:
+    async def fetch_metadata(self, inst_id: str) -> bool:
         """Fetch and cache instrument metadata from OKX REST API."""
         try:
             url = f"{REST_BASE}/api/v5/public/instruments"
@@ -50,7 +50,9 @@ class InstrumentMetadata:
                 'instId': inst_id
             }
             
-            response = requests.get(url, params=params, timeout=10)
+            response = await asyncio.to_thread(
+                requests.get, url, params=params, timeout=10
+            )
             response.raise_for_status()
             
             data = response.json()
@@ -343,7 +345,7 @@ class TradesExporter:
         # Fetch instrument metadata
         logger.info("Fetching instrument metadata...")
         for inst_id in INSTRUMENTS:
-            success = self.metadata.fetch_metadata(inst_id)
+            success = await self.metadata.fetch_metadata(inst_id)
             if not success:
                 logger.error(f"BUILD_FAIL: Failed to fetch metadata for {inst_id}")
                 return
