@@ -122,6 +122,7 @@ class TradesWriter:
     def __init__(self, metadata_manager: InstrumentMetadata):
         self.metadata = metadata_manager
         self.seen_trades: Dict[str, Set[str]] = {}  # inst_id -> set of trade_ids
+        self.open_files: Dict[str, tuple] = {}      # inst_id -> (path, file_obj)
         self.trades_written = 0
         self.trades_skipped = 0
     
@@ -211,8 +212,19 @@ class TradesWriter:
             # Write to JSONL
             output_path = self._get_output_path(inst_id, timestamp_utc)
             
-            with open(output_path, 'a') as f:
-                f.write(json.dumps(trade_record) + '\n')
+            # Use cached file handle if available and path matches
+            if inst_id in self.open_files:
+                cached_path, f = self.open_files[inst_id]
+                if cached_path != output_path:
+                    f.close()
+                    f = open(output_path, 'a')
+                    self.open_files[inst_id] = (output_path, f)
+            else:
+                f = open(output_path, 'a')
+                self.open_files[inst_id] = (output_path, f)
+
+            f.write(json.dumps(trade_record) + '\n')
+            f.flush()  # Ensure data is safely persisted
             
             # Track written trade
             self.seen_trades[inst_id].add(dedup_key)
@@ -231,6 +243,14 @@ class TradesWriter:
             logger.error(f"[{inst_id}] Trade write failed: {e}", exc_info=True)
             return False
 
+    def close_all(self):
+        """Close all open file handles."""
+        for inst_id, (path, f) in self.open_files.items():
+            try:
+                f.close()
+            except Exception as e:
+                logger.error(f"Error closing file for {inst_id}: {e}")
+        self.open_files.clear()
 
 
 class TradesExporter:
@@ -379,6 +399,8 @@ class TradesExporter:
         """Stop the exporter."""
         logger.info("Stopping Trades Exporter...")
         self.running = False
+        if self.writer:
+            self.writer.close_all()
 
 
 async def main():
