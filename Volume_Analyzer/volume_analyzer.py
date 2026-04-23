@@ -28,7 +28,7 @@ import argparse
 getcontext().prec = 50
 
 # Paths
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path("Rave_Quant_Vault")
 
 # Thresholds
 WHALE_THRESHOLD_USD = Decimal('100000')  # $100k+ = whale
@@ -438,26 +438,34 @@ def aggregate_minute(trades: List[Trade], minute_ts: datetime) -> Dict:
 
 
 
-def write_volume_output(inst_id: str, volume_data: Dict):
-    """Write volume metrics to JSONL (append-only)."""
-    output_dir = VAULT_BASE / 'derived' / 'volume' / 'okx' / 'perps' / inst_id
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    output_file = output_dir / 'volume_1m.jsonl'
-    
-    # Check if already written
+def get_existing_timestamps(output_file: Path) -> set:
+    """Read existing timestamps from the output file to prevent duplicates."""
+    existing_timestamps = set()
     if output_file.exists():
         with open(output_file, 'r') as f:
             for line in f:
                 if not line.strip():
                     continue
                 data = json.loads(line)
-                if data.get('timestamp_utc') == volume_data['timestamp_utc']:
-                    return  # Already written
+                if 'timestamp_utc' in data:
+                    existing_timestamps.add(data['timestamp_utc'])
+    return existing_timestamps
+
+
+def write_volume_output(output_file: Path, volume_data: Dict, existing_timestamps: set):
+    """Write volume metrics to JSONL (append-only)."""
+    # Check if already written
+    timestamp = volume_data.get('timestamp_utc')
+    if timestamp in existing_timestamps:
+        return  # Already written
     
     # Append
     with open(output_file, 'a') as f:
         f.write(json.dumps(volume_data) + '\n')
+
+    # Update state
+    if timestamp:
+        existing_timestamps.add(timestamp)
 
 
 def process_inst_id(inst_id: str):
@@ -517,6 +525,12 @@ def process_inst_id(inst_id: str):
     # Process each minute
     outputs_written = 0
     
+    output_dir = VAULT_BASE / 'derived' / 'volume' / 'okx' / 'perps' / inst_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / 'volume_1m.jsonl'
+
+    existing_timestamps = get_existing_timestamps(output_file)
+
     for minute_ts in sorted(trades_by_minute.keys()):
         # Skip if already processed
         if state.last_minute_processed:
@@ -571,7 +585,7 @@ def process_inst_id(inst_id: str):
         }
         
         # Write output
-        write_volume_output(inst_id, volume_data)
+        write_volume_output(output_file, volume_data, existing_timestamps)
         outputs_written += 1
         
         # Update state
