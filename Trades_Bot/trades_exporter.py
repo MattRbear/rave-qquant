@@ -13,6 +13,14 @@ import json
 import logging
 import requests
 from datetime import datetime, timezone
+
+try:
+    import orjson
+    json_loads = orjson.loads
+    JSONDecodeError = orjson.JSONDecodeError
+except ImportError:
+    json_loads = json.loads
+    JSONDecodeError = json.JSONDecodeError
 from pathlib import Path
 from typing import Dict, Set
 import websockets
@@ -323,9 +331,9 @@ class TradesExporter:
                     continue
                 
                 try:
-                    data = json.loads(message)
+                    data = json_loads(message)
                     await self.process_message(data)
-                except json.JSONDecodeError:
+                except JSONDecodeError:
                     logger.error(f"Failed to decode message: {message}")
         
         except websockets.exceptions.ConnectionClosed:
