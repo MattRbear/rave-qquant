@@ -122,6 +122,8 @@ class SessionWindow:
     def __init__(self):
         self.trades: deque[Trade] = deque()
         self.current_session_date: Optional[str] = None
+        self._sum_price_volume = Decimal('0')
+        self._sum_volume = Decimal('0')
     
     def check_and_reset_session(self, trade_time: datetime):
         """Reset trades if new UTC day."""
@@ -133,35 +135,28 @@ class SessionWindow:
             # New session - reset
             logger.info(f"Session reset: {self.current_session_date} → {trade_date}")
             self.trades.clear()
+            self._sum_price_volume = Decimal('0')
+            self._sum_volume = Decimal('0')
             self.current_session_date = trade_date
     
     def add_trade(self, trade: Trade):
         """Add trade to session window."""
         self.check_and_reset_session(trade.timestamp)
         self.trades.append(trade)
+
+        notional = trade.notional
+        self._sum_price_volume += trade.price_decimal * notional
+        self._sum_volume += notional
     
     def calculate_vwap(self) -> Optional[Decimal]:
         """
         Calculate session VWAP.
         VWAP = Σ(price × notional) / Σ(notional)
         """
-        if not self.trades:
+        if not self.trades or self._sum_volume == 0:
             return None
         
-        sum_price_volume = Decimal('0')
-        sum_volume = Decimal('0')
-        
-        for trade in self.trades:
-            notional = trade.notional
-            price = trade.price_decimal
-            
-            sum_price_volume += price * notional
-            sum_volume += notional
-        
-        if sum_volume == 0:
-            return None
-        
-        return sum_price_volume / sum_volume
+        return self._sum_price_volume / self._sum_volume
     
     def get_trade_count(self) -> int:
         """Get number of trades in current session."""
@@ -180,10 +175,16 @@ class RollingWindow:
     def __init__(self, window_minutes: int):
         self.window_minutes = window_minutes
         self.trades: deque[Trade] = deque()
+        self._sum_price_volume = Decimal('0')
+        self._sum_volume = Decimal('0')
     
     def add_trade(self, trade: Trade):
         """Add trade to window."""
         self.trades.append(trade)
+
+        notional = trade.notional
+        self._sum_price_volume += trade.price_decimal * notional
+        self._sum_volume += notional
     
     def trim_to_window(self, current_time: datetime):
         """Remove trades older than window size."""
@@ -191,7 +192,10 @@ class RollingWindow:
         
         # Remove from left (oldest) while they're outside window
         while self.trades and self.trades[0].timestamp < cutoff_time:
-            self.trades.popleft()
+            removed_trade = self.trades.popleft()
+            notional = removed_trade.notional
+            self._sum_price_volume -= removed_trade.price_decimal * notional
+            self._sum_volume -= notional
     
     def calculate_vwap(self) -> Optional[Decimal]:
         """
@@ -200,23 +204,10 @@ class RollingWindow:
         RESEARCH FORMULA: VWAP_tick = Σ(Pi × Vi) / Σ(Vi)
         This is the ABSOLUTE definition - uses exact trade prices, not OHLC approximation.
         """
-        if not self.trades:
+        if not self.trades or self._sum_volume == 0:
             return None
         
-        sum_price_volume = Decimal('0')
-        sum_volume = Decimal('0')
-        
-        for trade in self.trades:
-            notional = trade.notional
-            price = trade.price_decimal
-            
-            sum_price_volume += price * notional
-            sum_volume += notional
-        
-        if sum_volume == 0:
-            return None
-        
-        return sum_price_volume / sum_volume
+        return self._sum_price_volume / self._sum_volume
     
     def get_trade_count(self) -> int:
         """Get number of trades in window."""
@@ -239,11 +230,15 @@ class AnchoredWindow:
     def __init__(self, anchor_time: Optional[datetime] = None):
         self.anchor_time = anchor_time
         self.trades: List[Trade] = []
+        self._sum_price_volume = Decimal('0')
+        self._sum_volume = Decimal('0')
     
     def set_anchor(self, anchor_time: datetime):
         """Set anchor time and clear trades."""
         self.anchor_time = anchor_time
         self.trades.clear()
+        self._sum_price_volume = Decimal('0')
+        self._sum_volume = Decimal('0')
         logger.info(f"AVWAP anchor set: {anchor_time.isoformat()}")
     
     def add_trade(self, trade: Trade):
@@ -253,29 +248,20 @@ class AnchoredWindow:
         
         if trade.timestamp >= self.anchor_time:
             self.trades.append(trade)
+
+            notional = trade.notional
+            self._sum_price_volume += trade.price_decimal * notional
+            self._sum_volume += notional
     
     def calculate_vwap(self) -> Optional[Decimal]:
         """
         Calculate anchored VWAP.
         AVWAP_t = Σ(from t₀ to t) (Pi × Vi) / Σ(from t₀ to t) Vi
         """
-        if not self.trades or self.anchor_time is None:
+        if not self.trades or self.anchor_time is None or self._sum_volume == 0:
             return None
         
-        sum_price_volume = Decimal('0')
-        sum_volume = Decimal('0')
-        
-        for trade in self.trades:
-            notional = trade.notional
-            price = trade.price_decimal
-            
-            sum_price_volume += price * notional
-            sum_volume += notional
-        
-        if sum_volume == 0:
-            return None
-        
-        return sum_price_volume / sum_volume
+        return self._sum_price_volume / self._sum_volume
     
     def get_trade_count(self) -> int:
         """Get number of trades since anchor."""
