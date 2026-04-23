@@ -25,6 +25,7 @@ STATE: Vault\\state\\cvd\\okx\\{SYMBOL}.state.json
 
 import json
 import logging
+import os
 from pathlib import Path
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
@@ -40,7 +41,7 @@ logging.basicConfig(
 logger = logging.getLogger('CVD_Calculator')
 
 # Paths
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(os.getenv('RAVE_VAULT_BASE', os.getenv('RAVEQUANT_VAULT', 'Rave_Quant_Vault')))
 
 
 @dataclass
@@ -126,6 +127,22 @@ def read_trade_files(symbol: str) -> List[Path]:
     return files
 
 
+def _is_new_trade(trade: Trade, state: CVDState) -> bool:
+    """Helper to check if a trade is after the state cursor."""
+    if state.last_timestamp_utc is None:
+        return True
+
+    if trade.timestamp_utc < state.last_timestamp_utc:
+        return False
+
+    if trade.timestamp_utc == state.last_timestamp_utc:
+        if state.last_trade_id is not None:
+            if int(trade.trade_id) <= int(state.last_trade_id):
+                return False
+
+    return True
+
+
 def parse_trades(filepath: Path, state: CVDState) -> List[Trade]:
     """
     Read trades from JSONL file.
@@ -141,18 +158,8 @@ def parse_trades(filepath: Path, state: CVDState) -> List[Trade]:
             data = json.loads(line)
             trade = Trade(**data)
             
-            # Skip if before or equal to cursor
-            if state.last_timestamp_utc is not None:
-                if trade.timestamp_utc < state.last_timestamp_utc:
-                    continue
-                
-                if trade.timestamp_utc == state.last_timestamp_utc:
-                    # Same timestamp - check trade_id (numeric comparison)
-                    if state.last_trade_id is not None:
-                        if int(trade.trade_id) <= int(state.last_trade_id):
-                            continue
-            
-            trades.append(trade)
+            if _is_new_trade(trade, state):
+                trades.append(trade)
     
     return trades
 
@@ -208,6 +215,44 @@ def calculate_cvd_updates(trades: List[Trade], start_cvd: Decimal) -> Dict[datet
     return windows
 
 
+def _get_existing_windows(output_file: Path) -> set:
+    """Helper to read existing window timestamps for deduplication."""
+    existing_windows = set()
+    if output_file.exists():
+        with open(output_file, 'r') as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                data = json.loads(line)
+                existing_windows.add(data['window_start_utc'])
+    return existing_windows
+
+
+def _write_date_windows(output_file: Path, date_windows: Dict[datetime, tuple[Decimal, Decimal]], symbol: str, existing_windows: set) -> int:
+    """Helper to write new windows for a specific date, returning number written."""
+    written = 0
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_file, 'a') as f:
+        for window_start, (cvd_value, delta_value) in sorted(date_windows.items()):
+            window_str = window_start.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+            if window_str in existing_windows:
+                continue  # Skip duplicate
+
+            record = {
+                'window_start_utc': window_str,
+                'cvd_value': str(cvd_value),
+                'cvd_delta': str(delta_value),
+                'symbol': symbol.replace('-', '/'),
+                'exchange': 'okx',
+                'timeframe': '1m'
+            }
+
+            f.write(json.dumps(record) + '\n')
+            written += 1
+    return written
+
+
 def write_cvd_outputs(symbol: str, windows: Dict[datetime, tuple[Decimal, Decimal]]):
     """
     Write CVD outputs to derived/cvd/okx/{symbol}/1m/YYYY-MM-DD.jsonl
@@ -234,35 +279,8 @@ def write_cvd_outputs(symbol: str, windows: Dict[datetime, tuple[Decimal, Decima
         output_dir = VAULT_BASE / 'derived' / 'cvd' / 'okx' / symbol / '1m'
         output_file = output_dir / f'{date_str}.jsonl'
         
-        # Read existing windows to deduplicate
-        existing_windows = set()
-        if output_file.exists():
-            with open(output_file, 'r') as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    data = json.loads(line)
-                    existing_windows.add(data['window_start_utc'])
-        
-        # Write new windows only
-        with open(output_file, 'a') as f:
-            for window_start, (cvd_value, delta_value) in sorted(date_windows.items()):
-                window_str = window_start.strftime('%Y-%m-%dT%H:%M:%SZ')
-                
-                if window_str in existing_windows:
-                    continue  # Skip duplicate
-                
-                record = {
-                    'window_start_utc': window_str,
-                    'cvd_value': str(cvd_value),
-                    'cvd_delta': str(delta_value),
-                    'symbol': symbol.replace('-', '/'),
-                    'exchange': 'okx',
-                    'timeframe': '1m'
-                }
-                
-                f.write(json.dumps(record) + '\n')
-                total_written += 1
+        existing_windows = _get_existing_windows(output_file)
+        total_written += _write_date_windows(output_file, date_windows, symbol, existing_windows)
     
     return total_written
 
