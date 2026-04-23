@@ -9,6 +9,7 @@ OUTPUT: Vault\raw\okx\trades_perps\{INSTID}\{DATE}.jsonl
 """
 
 import asyncio
+import aiohttp
 import json
 import logging
 import requests
@@ -41,8 +42,8 @@ class InstrumentMetadata:
     def __init__(self):
         self.metadata: Dict[str, Dict] = {}
     
-    def fetch_metadata(self, inst_id: str) -> bool:
-        """Fetch and cache instrument metadata from OKX REST API."""
+    async def fetch_metadata(self, inst_id: str) -> bool:
+        """Fetch and cache instrument metadata from OKX REST API asynchronously."""
         try:
             url = f"{REST_BASE}/api/v5/public/instruments"
             params = {
@@ -50,10 +51,10 @@ class InstrumentMetadata:
                 'instId': inst_id
             }
             
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            
-            data = response.json()
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=10) as response:
+                    response.raise_for_status()
+                    data = await response.json()
             
             if data.get('code') != '0':
                 logger.error(f"[{inst_id}] API error: {data}")
@@ -342,8 +343,9 @@ class TradesExporter:
         
         # Fetch instrument metadata
         logger.info("Fetching instrument metadata...")
-        for inst_id in INSTRUMENTS:
-            success = self.metadata.fetch_metadata(inst_id)
+        tasks = [self.metadata.fetch_metadata(inst_id) for inst_id in INSTRUMENTS]
+        results = await asyncio.gather(*tasks)
+        for inst_id, success in zip(INSTRUMENTS, results):
             if not success:
                 logger.error(f"BUILD_FAIL: Failed to fetch metadata for {inst_id}")
                 return
