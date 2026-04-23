@@ -216,6 +216,42 @@ def match_topics(text: str) -> tuple[Set[str], float]:
 # RECORD EXTRACTORS
 # ============================================================================
 
+def _process_json_list(data: list, filepath: Path, input_root: Path) -> Iterator[Dict[str, Any]]:
+    """Helper to process a JSON list of messages."""
+    for idx, item in enumerate(data):
+        if isinstance(item, dict):
+            yield format_record(item, filepath, input_root, 'openai_export_json', idx)
+        elif isinstance(item, str):
+            yield {
+                'text': item,
+                'source_file': str(filepath.relative_to(input_root)),
+                'detected_format': 'json_array',
+                'message_index': idx
+            }
+
+def _process_json_dict(data: dict, filepath: Path, input_root: Path) -> Iterator[Dict[str, Any]]:
+    """Helper to process a JSON dictionary structure."""
+    if 'messages' in data:
+        messages = data['messages']
+        conv_id = data.get('id') or data.get('conversation_id')
+        for idx, msg in enumerate(messages):
+            record = format_record(msg, filepath, input_root, 'openai_export_json', idx)
+            if conv_id:
+                record['conversation_id'] = conv_id
+            yield record
+    elif 'conversations' in data:
+        for conv in data['conversations']:
+            conv_id = conv.get('id')
+            messages = conv.get('messages', [])
+            for idx, msg in enumerate(messages):
+                record = format_record(msg, filepath, input_root, 'openai_export_json', idx)
+                if conv_id:
+                    record['conversation_id'] = conv_id
+                yield record
+    else:
+        # Fallback: extract any text-like fields
+        yield format_record(data, filepath, input_root, 'json_dict', 0)
+
 def extract_from_json(filepath: Path, input_root: Path) -> Iterator[Dict[str, Any]]:
     """Extract records from JSON file."""
     try:
@@ -227,42 +263,9 @@ def extract_from_json(filepath: Path, input_root: Path) -> Iterator[Dict[str, An
         
         # Try to detect structure
         if isinstance(data, list):
-            # Array of messages
-            for idx, item in enumerate(data):
-                if isinstance(item, dict):
-                    yield format_record(item, filepath, input_root, 'openai_export_json', idx)
-                elif isinstance(item, str):
-                    yield {
-                        'text': item,
-                        'source_file': str(filepath.relative_to(input_root)),
-                        'detected_format': 'json_array',
-                        'message_index': idx
-                    }
-        
+            yield from _process_json_list(data, filepath, input_root)
         elif isinstance(data, dict):
-            # Check for common chat export structures
-            if 'messages' in data:
-                messages = data['messages']
-                conv_id = data.get('id') or data.get('conversation_id')
-                for idx, msg in enumerate(messages):
-                    record = format_record(msg, filepath, input_root, 'openai_export_json', idx)
-                    if conv_id:
-                        record['conversation_id'] = conv_id
-                    yield record
-            
-            elif 'conversations' in data:
-                for conv in data['conversations']:
-                    conv_id = conv.get('id')
-                    messages = conv.get('messages', [])
-                    for idx, msg in enumerate(messages):
-                        record = format_record(msg, filepath, input_root, 'openai_export_json', idx)
-                        if conv_id:
-                            record['conversation_id'] = conv_id
-                        yield record
-            
-            else:
-                # Fallback: extract any text-like fields
-                yield format_record(data, filepath, input_root, 'json_dict', 0)
+            yield from _process_json_dict(data, filepath, input_root)
     
     except json.JSONDecodeError as e:
         logger.warning(f"JSON decode error in {filepath}: {e}")
@@ -290,6 +293,24 @@ def extract_from_jsonl(filepath: Path, input_root: Path) -> Iterator[Dict[str, A
         logger.error(f"Error processing JSONL {filepath}: {e}")
 
 
+def _process_structured_plaintext(splits: list[str], filepath: Path, input_root: Path) -> Iterator[Dict[str, Any]]:
+    """Helper to process structured plaintext messages."""
+    idx = 0
+    for i in range(1, len(splits), 2):
+        if i+1 < len(splits):
+            role = splits[i].lower()
+            content = splits[i+1].strip()
+
+            if content:
+                yield {
+                    'text': content,
+                    'source_file': str(filepath.relative_to(input_root)),
+                    'detected_format': 'plaintext_structured',
+                    'message_index': idx,
+                    'role': role if role in ['user', 'assistant', 'system'] else 'unknown'
+                }
+                idx += 1
+
 def extract_from_plaintext(filepath: Path, input_root: Path) -> Iterator[Dict[str, Any]]:
     """Extract records from plaintext file."""
     try:
@@ -307,22 +328,7 @@ def extract_from_plaintext(filepath: Path, input_root: Path) -> Iterator[Dict[st
         splits = message_pattern.split(text)
         
         if len(splits) > 3:
-            # Detected structured messages
-            idx = 0
-            for i in range(1, len(splits), 2):
-                if i+1 < len(splits):
-                    role = splits[i].lower()
-                    content = splits[i+1].strip()
-                    
-                    if content:
-                        yield {
-                            'text': content,
-                            'source_file': str(filepath.relative_to(input_root)),
-                            'detected_format': 'plaintext_structured',
-                            'message_index': idx,
-                            'role': role if role in ['user', 'assistant', 'system'] else 'unknown'
-                        }
-                        idx += 1
+            yield from _process_structured_plaintext(splits, filepath, input_root)
         else:
             # Treat entire file as one record
             yield {
@@ -494,6 +500,32 @@ class ChunkedWriter:
 # MAIN PROCESSOR
 # ============================================================================
 
+def _process_record(record: Dict[str, Any], writer: ChunkedWriter, stats: Dict[str, Any]):
+    """Helper to process a single record, filter it by topics, and update stats."""
+    text = record.get('text', '')
+
+    if not text or len(text) < 10:
+        stats['total_records_dropped'] += 1
+        return
+
+    # Match topics
+    topics, score = match_topics(text)
+
+    if topics and score > 0:
+        # Keep this record
+        record['topics'] = sorted(list(topics))
+        record['match_score'] = round(score, 2)
+
+        writer.add_record(record)
+        stats['total_records_kept'] += 1
+
+        # Update topic counts
+        for topic in topics:
+            stats['topic_counts'][topic] += 1
+    else:
+        stats['total_records_dropped'] += 1
+
+
 def process_dataset(input_dir: Path, output_dir: Path, max_chars: int):
     """Main processing pipeline."""
     logger.info(f"Starting extraction from: {input_dir}")
@@ -542,28 +574,7 @@ def process_dataset(input_dir: Path, output_dir: Path, max_chars: int):
             
             # Filter and write records
             for record in records:
-                text = record.get('text', '')
-                
-                if not text or len(text) < 10:
-                    stats['total_records_dropped'] += 1
-                    continue
-                
-                # Match topics
-                topics, score = match_topics(text)
-                
-                if topics and score > 0:
-                    # Keep this record
-                    record['topics'] = sorted(list(topics))
-                    record['match_score'] = round(score, 2)
-                    
-                    writer.add_record(record)
-                    stats['total_records_kept'] += 1
-                    
-                    # Update topic counts
-                    for topic in topics:
-                        stats['topic_counts'][topic] += 1
-                else:
-                    stats['total_records_dropped'] += 1
+                _process_record(record, writer, stats)
         
         except Exception as e:
             logger.error(f"Failed to process {filepath}: {e}")
