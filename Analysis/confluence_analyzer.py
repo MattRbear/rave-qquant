@@ -1,4 +1,4 @@
-"""
+r"""
 CONFLUENCE ANALYZER - Multi-Layer Signal Detection
 ===================================================
 Reads all data sources and identifies max conviction setups where:
@@ -18,10 +18,11 @@ INPUT:
 - Vault\derived\vwap\okx\perps\{INSTID}\vwap_1m.jsonl
 
 OUTPUT:
-- C:\Users\M.R Bear\Documents\RaveQuant\Analysis\confluence_signals.jsonl
+- Analysis\confluence_signals.jsonl
 """
 
 import json
+import os
 import logging
 from pathlib import Path
 from decimal import Decimal
@@ -30,8 +31,8 @@ from typing import List, Dict, Optional
 from collections import defaultdict
 
 # Paths
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
-OUTPUT_DIR = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Analysis")
+VAULT_BASE = Path(os.environ.get("RAVEQUANT_VAULT", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
+OUTPUT_DIR = Path(os.environ.get("RAVEQUANT_ANALYSIS", Path(__file__).resolve().parent))
 
 # Confluence thresholds
 PRICE_TOLERANCE_PCT = Decimal('0.5')  # 0.5% = tight confluence

@@ -16,6 +16,7 @@ STATE: Vault\state\liquidity_buckets\okx\perps\{INSTID}.state.json
 """
 
 import json
+import os
 import logging
 from pathlib import Path
 from decimal import Decimal, getcontext
@@ -28,7 +29,7 @@ import argparse
 getcontext().prec = 50
 
 # Paths
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(os.environ.get("RAVEQUANT_VAULT", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
 
 # Instruments
 INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]

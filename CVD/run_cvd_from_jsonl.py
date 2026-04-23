@@ -1,4 +1,4 @@
-"""
+r"""
 CVD Calculator from JSONL - Research-Verified Implementation
 ------------------------------------------------------------
 Calculates Cumulative Volume Delta (CVD) using aggressor-tagged trades.
@@ -24,6 +24,7 @@ STATE: Vault\\state\\cvd\\okx\\{SYMBOL}.state.json
 """
 
 import json
+import os
 import logging
 from pathlib import Path
 from decimal import Decimal
@@ -40,7 +41,7 @@ logging.basicConfig(
 logger = logging.getLogger('CVD_Calculator')
 
 # Paths
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(os.environ.get("RAVEQUANT_VAULT", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
 
 
 @dataclass
