@@ -438,6 +438,8 @@ def aggregate_minute(trades: List[Trade], minute_ts: datetime) -> Dict:
 
 
 
+_written_timestamps: dict[Path, set[str]] = {}
+
 def write_volume_output(inst_id: str, volume_data: Dict):
     """Write volume metrics to JSONL (append-only)."""
     output_dir = VAULT_BASE / 'derived' / 'volume' / 'okx' / 'perps' / inst_id
@@ -445,19 +447,28 @@ def write_volume_output(inst_id: str, volume_data: Dict):
     
     output_file = output_dir / 'volume_1m.jsonl'
     
+    # Initialize cache for this file if not exists
+    if output_file not in _written_timestamps:
+        _written_timestamps[output_file] = set()
+        if output_file.exists():
+            with open(output_file, 'r') as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    data = json.loads(line)
+                    if 'timestamp_utc' in data:
+                        _written_timestamps[output_file].add(data['timestamp_utc'])
+
     # Check if already written
-    if output_file.exists():
-        with open(output_file, 'r') as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                data = json.loads(line)
-                if data.get('timestamp_utc') == volume_data['timestamp_utc']:
-                    return  # Already written
+    if volume_data['timestamp_utc'] in _written_timestamps[output_file]:
+        return  # Already written
     
     # Append
     with open(output_file, 'a') as f:
         f.write(json.dumps(volume_data) + '\n')
+
+    # Update cache
+    _written_timestamps[output_file].add(volume_data['timestamp_utc'])
 
 
 def process_inst_id(inst_id: str):
