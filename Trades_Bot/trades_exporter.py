@@ -11,6 +11,7 @@ OUTPUT: Vault\raw\okx\trades_perps\{INSTID}\{DATE}.jsonl
 import asyncio
 import json
 import logging
+import orjson
 import requests
 from datetime import datetime, timezone
 from pathlib import Path
@@ -323,9 +324,9 @@ class TradesExporter:
                     continue
                 
                 try:
-                    data = json.loads(message)
+                    data = orjson.loads(message)
                     await self.process_message(data)
-                except json.JSONDecodeError:
+                except orjson.JSONDecodeError:
                     logger.error(f"Failed to decode message: {message}")
         
         except websockets.exceptions.ConnectionClosed:
