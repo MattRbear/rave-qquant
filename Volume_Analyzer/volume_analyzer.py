@@ -24,6 +24,9 @@ from dataclasses import dataclass
 from collections import deque
 import argparse
 
+# In-memory deduplication cache
+_written_timestamps = {}
+
 # Set precision
 getcontext().prec = 50
 
@@ -440,24 +443,40 @@ def aggregate_minute(trades: List[Trade], minute_ts: datetime) -> Dict:
 
 def write_volume_output(inst_id: str, volume_data: Dict):
     """Write volume metrics to JSONL (append-only)."""
+    global _written_timestamps
+
     output_dir = VAULT_BASE / 'derived' / 'volume' / 'okx' / 'perps' / inst_id
     output_dir.mkdir(parents=True, exist_ok=True)
     
     output_file = output_dir / 'volume_1m.jsonl'
+    file_path_str = str(output_file)
     
-    # Check if already written
-    if output_file.exists():
-        with open(output_file, 'r') as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                data = json.loads(line)
-                if data.get('timestamp_utc') == volume_data['timestamp_utc']:
-                    return  # Already written
+    target_ts = volume_data['timestamp_utc']
+
+    # Initialize cache for this file if not exists
+    if file_path_str not in _written_timestamps:
+        _written_timestamps[file_path_str] = set()
+
+        # Populate from existing file
+        if output_file.exists():
+            with open(output_file, 'r') as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    data = json.loads(line)
+                    if 'timestamp_utc' in data:
+                        _written_timestamps[file_path_str].add(data['timestamp_utc'])
+
+    # Check cache
+    if target_ts in _written_timestamps[file_path_str]:
+        return  # Already written
     
     # Append
     with open(output_file, 'a') as f:
         f.write(json.dumps(volume_data) + '\n')
+
+    # Update cache
+    _written_timestamps[file_path_str].add(target_ts)
 
 
 def process_inst_id(inst_id: str):
