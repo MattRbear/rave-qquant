@@ -494,6 +494,61 @@ class ChunkedWriter:
 # MAIN PROCESSOR
 # ============================================================================
 
+def process_record(record: Dict[str, Any], writer: ChunkedWriter, stats: Dict[str, Any]):
+    """Process a single record, filtering and matching topics."""
+    text = record.get('text', '')
+
+    if not text or len(text) < 10:
+        stats['total_records_dropped'] += 1
+        return
+
+    # Match topics
+    topics, score = match_topics(text)
+
+    if topics and score > 0:
+        # Keep this record
+        record['topics'] = sorted(list(topics))
+        record['match_score'] = round(score, 2)
+
+        writer.add_record(record)
+        stats['total_records_kept'] += 1
+
+        # Update topic counts
+        for topic in topics:
+            stats['topic_counts'][topic] += 1
+    else:
+        stats['total_records_dropped'] += 1
+
+
+def process_single_file(filepath: Path, input_dir: Path, writer: ChunkedWriter, stats: Dict[str, Any]):
+    """Process a single file, extracting records based on format."""
+    try:
+        # Detect format and extract records
+        file_format = detect_file_format(filepath)
+
+        if file_format == 'json':
+            records = extract_from_json(filepath, input_dir)
+        elif file_format == 'jsonl':
+            records = extract_from_jsonl(filepath, input_dir)
+        elif file_format == 'plaintext':
+            records = extract_from_plaintext(filepath, input_dir)
+        elif file_format == 'html':
+            records = extract_from_html(filepath, input_dir)
+        else:
+            records = extract_from_plaintext(filepath, input_dir)  # Fallback
+
+        # Filter and write records
+        for record in records:
+            process_record(record, writer, stats)
+
+    except Exception as e:
+        logger.error(f"Failed to process {filepath}: {e}")
+        stats['failed_files'].append({
+            'file': str(filepath),
+            'error': str(e)
+        })
+
+
 def process_dataset(input_dir: Path, output_dir: Path, max_chars: int):
     """Main processing pipeline."""
     logger.info(f"Starting extraction from: {input_dir}")
@@ -525,52 +580,7 @@ def process_dataset(input_dir: Path, output_dir: Path, max_chars: int):
         if file_idx % 10 == 0:
             logger.info(f"Progress: {file_idx}/{len(all_files)} files, {stats['total_records_kept']} records kept")
         
-        try:
-            # Detect format and extract records
-            file_format = detect_file_format(filepath)
-            
-            if file_format == 'json':
-                records = extract_from_json(filepath, input_dir)
-            elif file_format == 'jsonl':
-                records = extract_from_jsonl(filepath, input_dir)
-            elif file_format == 'plaintext':
-                records = extract_from_plaintext(filepath, input_dir)
-            elif file_format == 'html':
-                records = extract_from_html(filepath, input_dir)
-            else:
-                records = extract_from_plaintext(filepath, input_dir)  # Fallback
-            
-            # Filter and write records
-            for record in records:
-                text = record.get('text', '')
-                
-                if not text or len(text) < 10:
-                    stats['total_records_dropped'] += 1
-                    continue
-                
-                # Match topics
-                topics, score = match_topics(text)
-                
-                if topics and score > 0:
-                    # Keep this record
-                    record['topics'] = sorted(list(topics))
-                    record['match_score'] = round(score, 2)
-                    
-                    writer.add_record(record)
-                    stats['total_records_kept'] += 1
-                    
-                    # Update topic counts
-                    for topic in topics:
-                        stats['topic_counts'][topic] += 1
-                else:
-                    stats['total_records_dropped'] += 1
-        
-        except Exception as e:
-            logger.error(f"Failed to process {filepath}: {e}")
-            stats['failed_files'].append({
-                'file': str(filepath),
-                'error': str(e)
-            })
+        process_single_file(filepath, input_dir, writer, stats)
     
     # Close writer
     chunk_files = writer.close()
