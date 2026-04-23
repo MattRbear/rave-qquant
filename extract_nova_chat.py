@@ -290,6 +290,25 @@ def extract_from_jsonl(filepath: Path, input_root: Path) -> Iterator[Dict[str, A
         logger.error(f"Error processing JSONL {filepath}: {e}")
 
 
+def _extract_structured_plaintext(splits: List[str], filepath: Path, input_root: Path) -> Iterator[Dict[str, Any]]:
+    """Helper to extract records from a structured plaintext format."""
+    idx = 0
+    for i in range(1, len(splits), 2):
+        if i + 1 < len(splits):
+            role = splits[i].lower()
+            content = splits[i + 1].strip()
+
+            if content:
+                yield {
+                    'text': content,
+                    'source_file': str(filepath.relative_to(input_root)),
+                    'detected_format': 'plaintext_structured',
+                    'message_index': idx,
+                    'role': role if role in ['user', 'assistant', 'system'] else 'unknown'
+                }
+                idx += 1
+
+
 def extract_from_plaintext(filepath: Path, input_root: Path) -> Iterator[Dict[str, Any]]:
     """Extract records from plaintext file."""
     try:
@@ -308,21 +327,7 @@ def extract_from_plaintext(filepath: Path, input_root: Path) -> Iterator[Dict[st
         
         if len(splits) > 3:
             # Detected structured messages
-            idx = 0
-            for i in range(1, len(splits), 2):
-                if i+1 < len(splits):
-                    role = splits[i].lower()
-                    content = splits[i+1].strip()
-                    
-                    if content:
-                        yield {
-                            'text': content,
-                            'source_file': str(filepath.relative_to(input_root)),
-                            'detected_format': 'plaintext_structured',
-                            'message_index': idx,
-                            'role': role if role in ['user', 'assistant', 'system'] else 'unknown'
-                        }
-                        idx += 1
+            yield from _extract_structured_plaintext(splits, filepath, input_root)
         else:
             # Treat entire file as one record
             yield {
