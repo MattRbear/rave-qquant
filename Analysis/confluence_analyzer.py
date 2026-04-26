@@ -21,6 +21,7 @@ OUTPUT:
 - C:\Users\M.R Bear\Documents\RaveQuant\Analysis\confluence_signals.jsonl
 """
 
+import os
 import json
 import logging
 from pathlib import Path
@@ -30,8 +31,8 @@ from typing import List, Dict, Optional
 from collections import defaultdict
 
 # Paths
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
-OUTPUT_DIR = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Analysis")
+VAULT_BASE = Path(os.environ.get("RAVEQUANT_VAULT", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
+OUTPUT_DIR = Path(os.environ.get("RAVEQUANT_BASE", Path(__file__).resolve().parent.parent)) / "Analysis"
 
 # Confluence thresholds
 PRICE_TOLERANCE_PCT = Decimal('0.5')  # 0.5% = tight confluence

@@ -17,6 +17,7 @@ OUTPUT: Vault\derived\vwap\okx\perps\{INSTID}\vwap_1m.jsonl
 STATE: Vault\state\vwap\okx\perps\{INSTID}.state.json
 """
 
+import os
 import json
 import logging
 from pathlib import Path
@@ -31,7 +32,7 @@ import argparse
 getcontext().prec = 50
 
 # Configuration
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(os.environ.get("RAVEQUANT_VAULT", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
 
 # Window sizes (minutes)
 WINDOW_1H = 60
@@ -376,7 +377,8 @@ def write_vwap_output(inst_id: str, minute_ts: datetime,
                       vwap_4h: Optional[Decimal],
                       trade_count_session: int,
                       trade_count_1h: int,
-                      trade_count_4h: int):
+                      trade_count_4h: int,
+                      written_minutes: set):
     """
     Write VWAP output to derived JSONL.
     Deduplicates by checking if minute already written.
@@ -393,16 +395,10 @@ def write_vwap_output(inst_id: str, minute_ts: datetime,
     
     minute_str = minute_ts.strftime('%Y-%m-%dT%H:%M:00Z')
     
-    # Check if this minute already exists in output
-    if output_file.exists():
-        with open(output_file, 'r') as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                data = json.loads(line)
-                if data.get('window_start_utc') == minute_str:
-                    return  # Already written
-    
+    # O(1) in-memory deduplication check
+    if minute_str in written_minutes:
+        return
+
     # Build VWAP record
     vwap_record = {
         'window_start_utc': minute_str,
@@ -420,6 +416,8 @@ def write_vwap_output(inst_id: str, minute_ts: datetime,
     # Append to output file
     with open(output_file, 'a') as f:
         f.write(json.dumps(vwap_record) + '\n')
+
+    written_minutes.add(minute_str)
 
 
 def process_inst_id(inst_id: str, anchor_time: Optional[str] = None):
@@ -443,6 +441,24 @@ def process_inst_id(inst_id: str, anchor_time: Optional[str] = None):
     
     # Load state
     state = load_state(inst_id)
+
+    # Initialize in-memory deduplication set
+    written_minutes = set()
+    output_dir = VAULT_BASE / 'derived' / 'vwap' / 'okx' / 'perps' / inst_id
+    output_file = output_dir / 'vwap_1m.jsonl'
+
+    if output_file.exists():
+        logger.info("Loading previously written minute timestamps into deduplication set...")
+        with open(output_file, 'r') as f:
+            for line in f:
+                if not line.strip(): continue
+                idx = line.find('"window_start_utc": "')
+                if idx != -1:
+                    start_idx = idx + 21
+                    end_idx = line.find('"', start_idx)
+                    if end_idx != -1:
+                        written_minutes.add(line[start_idx:end_idx])
+        logger.info(f"Loaded {len(written_minutes)} minute timestamps.")
     logger.info(f"Loaded state: last_ts={state.last_timestamp_utc}, last_minute={state.last_minute_processed}")
     
     # Initialize windows
@@ -522,7 +538,8 @@ def process_inst_id(inst_id: str, anchor_time: Optional[str] = None):
                 vwap_4h,
                 window_session.get_trade_count(),
                 window_1h.get_trade_count(),
-                window_4h.get_trade_count()
+                window_4h.get_trade_count(),
+                written_minutes
             )
             
             vwap_outputs += 1
