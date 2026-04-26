@@ -5,11 +5,14 @@ Captures raw perpetual swap trades from OKX WebSocket.
 Writes append-only JSONL with full contract metadata.
 
 INSTRUMENTS: BTC-USDT-SWAP, ETH-USDT-SWAP ONLY
-OUTPUT: Vault\raw\okx\trades_perps\{INSTID}\{DATE}.jsonl
+OUTPUT: Vault\\raw\\okx\\trades_perps\\{INSTID}\\{DATE}.jsonl
 """
 
+import os
 import asyncio
+import aiohttp
 import json
+import orjson
 import logging
 import requests
 from datetime import datetime, timezone
@@ -18,8 +21,20 @@ from typing import Dict, Set
 import websockets
 
 # Configuration
-INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+CONFIG_PATH = Path(__file__).resolve().parent.parent / 'config.json'
+INSTRUMENTS = []
+if CONFIG_PATH.exists():
+    try:
+        with open(CONFIG_PATH, 'r') as f:
+            cfg = json.load(f)
+            INSTRUMENTS = cfg.get('target_instruments', ["BTC-USDT-SWAP", "ETH-USDT-SWAP"])
+            if not INSTRUMENTS:
+                INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
+    except Exception as e:
+        INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
+else:
+    INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
+VAULT_BASE = Path(os.environ.get("RAVEQUANT_VAULT", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
 WS_URL = "wss://ws.okx.com:8443/ws/v5/public"
 REST_BASE = "https://www.okx.com"
 
@@ -122,8 +137,14 @@ class TradesWriter:
     def __init__(self, metadata_manager: InstrumentMetadata):
         self.metadata = metadata_manager
         self.seen_trades: Dict[str, Set[str]] = {}  # inst_id -> set of trade_ids
+        self.file_handles = {}  # output_path_str -> file handle
         self.trades_written = 0
         self.trades_skipped = 0
+
+    def close_all(self):
+        for f in self.file_handles.values():
+            f.close()
+        self.file_handles.clear()
     
     def _get_output_path(self, inst_id: str, timestamp_utc: datetime) -> Path:
         """Get output file path for trade."""
@@ -210,9 +231,14 @@ class TradesWriter:
             
             # Write to JSONL
             output_path = self._get_output_path(inst_id, timestamp_utc)
+            output_path_str = str(output_path)
             
-            with open(output_path, 'a') as f:
-                f.write(json.dumps(trade_record) + '\n')
+            if output_path_str not in self.file_handles:
+                self.file_handles[output_path_str] = open(output_path, 'a')
+
+            f = self.file_handles[output_path_str]
+            f.write(json.dumps(trade_record) + '\n')
+            f.flush()
             
             # Track written trade
             self.seen_trades[inst_id].add(dedup_key)
@@ -241,6 +267,34 @@ class TradesExporter:
         self.writer = None  # Initialize after metadata fetch
         self.ws = None
         self.running = False
+
+    async def backfill_historical_trades(self):
+        """Fetch historical trades before establishing WebSocket connection."""
+        logger.info("Starting backfill of historical trades via REST API...")
+        async with aiohttp.ClientSession() as session:
+            for inst_id in INSTRUMENTS:
+                try:
+                    # Fetch history trades (up to 100 recent)
+                    url = f"{REST_BASE}/api/v5/market/history-trades?instId={inst_id}&limit=100"
+                    async with session.get(url) as response:
+                        response.raise_for_status()
+                        data = await response.json()
+                        if data.get('code') == '0' and data.get('data'):
+                            trades = data['data']
+                            # Trades from REST come in descending order (newest first).
+                            # We process them so writer handles deduplication properly.
+                            # Best to process chronologically
+                            trades.reverse()
+                            written = 0
+                            for trade in trades:
+                                if self.writer.write_trade(inst_id, trade):
+                                    written += 1
+                            logger.info(f"[{inst_id}] Backfilled {written} historical trades.")
+                        else:
+                            logger.warning(f"[{inst_id}] No historical trades found or error: {data}")
+                except Exception as e:
+                    logger.error(f"[{inst_id}] Backfill failed: {e}")
+        logger.info("Backfill complete.")
     
     async def subscribe(self):
         """Subscribe to trades channels."""
@@ -323,9 +377,9 @@ class TradesExporter:
                     continue
                 
                 try:
-                    data = json.loads(message)
+                    data = orjson.loads(message)
                     await self.process_message(data)
-                except json.JSONDecodeError:
+                except orjson.JSONDecodeError:
                     logger.error(f"Failed to decode message: {message}")
         
         except websockets.exceptions.ConnectionClosed:
@@ -352,6 +406,9 @@ class TradesExporter:
         self.writer = TradesWriter(self.metadata)
         logger.info("Metadata loaded successfully")
         
+        # Perform backfill
+        await self.backfill_historical_trades()
+
         while self.running:
             try:
                 logger.info(f"Connecting to {WS_URL}")
@@ -379,6 +436,8 @@ class TradesExporter:
         """Stop the exporter."""
         logger.info("Stopping Trades Exporter...")
         self.running = False
+        if self.writer:
+            self.writer.close_all()
 
 
 async def main():
