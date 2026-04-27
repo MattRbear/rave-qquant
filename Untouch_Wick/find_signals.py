@@ -5,6 +5,7 @@ Find small wicks 20-40 min old, still untouched, surrounded by touched wicks.
 These are your highest conviction setups - the "on the money" entries.
 """
 
+import os
 import json
 import logging
 from pathlib import Path
@@ -13,7 +14,7 @@ from typing import List, Dict
 import argparse
 
 # Paths
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(os.environ.get("RAVE_VAULT_BASE", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
 
 # Logging
 logging.basicConfig(

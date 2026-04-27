@@ -5,10 +5,11 @@ Captures raw perpetual swap trades from OKX WebSocket.
 Writes append-only JSONL with full contract metadata.
 
 INSTRUMENTS: BTC-USDT-SWAP, ETH-USDT-SWAP ONLY
-OUTPUT: Vault\raw\okx\trades_perps\{INSTID}\{DATE}.jsonl
+OUTPUT: Vault\\raw\\okx\\trades_perps\\{INSTID}\\{DATE}.jsonl
 """
 
 import asyncio
+import os
 import json
 import logging
 import requests
@@ -19,7 +20,7 @@ import websockets
 
 # Configuration
 INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(os.environ.get("RAVE_VAULT_BASE", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
 WS_URL = "wss://ws.okx.com:8443/ws/v5/public"
 REST_BASE = "https://www.okx.com"
 
