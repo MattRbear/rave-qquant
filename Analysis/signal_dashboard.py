@@ -15,6 +15,7 @@ Quick health check for trading readiness.
 OUTPUT: Console display (no file output)
 """
 
+import os
 import json
 import logging
 from pathlib import Path
@@ -23,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict
 
 # Paths
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(os.environ.get("RAVE_VAULT_BASE", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
 
 # Freshness thresholds
 MAX_AGE_MINUTES = 15  # Data older than 15min = stale

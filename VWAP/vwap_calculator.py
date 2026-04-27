@@ -17,6 +17,7 @@ OUTPUT: Vault\derived\vwap\okx\perps\{INSTID}\vwap_1m.jsonl
 STATE: Vault\state\vwap\okx\perps\{INSTID}.state.json
 """
 
+import os
 import json
 import logging
 from pathlib import Path
@@ -31,7 +32,7 @@ import argparse
 getcontext().prec = 50
 
 # Configuration
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(os.environ.get("RAVE_VAULT_BASE", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
 
 # Window sizes (minutes)
 WINDOW_1H = 60
