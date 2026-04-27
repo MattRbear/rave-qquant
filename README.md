@@ -9,18 +9,60 @@
 ## QUICK START
 
 ```bash
-cd C:\Users\M.R Bear\Documents\RaveQuant
+# Clone / navigate to the repo
+cd /path/to/rave-qquant
 
-# Start everything
+# 1. Verify the bootstrap is clean (no processes started)
+python bootstrap_check.py
+
+# 2. Or use the built-in smoke-test mode
+python run_all.py --smoke-test
+
+# 3. Start everything (Windows)
 run_all.bat
 
-# Check system health
-cd Analysis
-run_dashboard.bat
+# Check system health (from Analysis/)
+python Analysis/signal_dashboard.py --instId BTC-USDT-SWAP
 
-# Find trade signals
-run_confluence.bat
+# Find trade signals (from Analysis/)
+python Analysis/confluence_analyzer.py --instId BTC-USDT-SWAP
 ```
+
+---
+
+## BOOTSTRAP VERIFICATION
+
+Before running for the first time (or on any new machine), verify the environment:
+
+```bash
+# Full bootstrap check — reports every subsystem pass/fail, exits non-zero on failure
+python bootstrap_check.py
+
+# Equivalent via the master runner
+python run_all.py --smoke-test
+
+# Quick health check without starting anything
+python run_all.py --check-only
+```
+
+### What the smoke test validates
+| Check | What it tests |
+|---|---|
+| Python runtime | Python 3.8+ present |
+| Repository root | Script can locate itself |
+| Required directories | All component folders exist |
+| Required scripts | All entry-point `.py` files exist |
+| Requirements files | `requirements.txt` present for each component |
+| Vault directory | Centralized storage folder present |
+| Analysis tools | Dashboard + confluence analyzer present |
+
+A **pass** means the repo is ready to bootstrap.  
+A **fail** lists exactly what is missing and the expected path.
+
+### Known gaps on a fresh clone
+| Component | Status | Action required |
+|---|---|---|
+| `L2_Bot/l2_exporter.py` | ❌ Missing | File not yet committed — see `L2_Bot/DEPLOYMENT.md` |
 
 ---
 
@@ -81,13 +123,13 @@ STORAGE:
 - **Input:** Trades
 - **Output:** `Vault\derived\cvd\okx\perps\{INSTID}\cvd_1m.jsonl`
 - **What:** Cumulative volume delta (buy - sell), divergence detection
-- **Run:** `cd CVD && python cvd_calculator.py --instId BTC-USDT-SWAP`
+- **Run:** `cd CVD && python run_cvd_from_jsonl.py --symbol BTC-USDT`
 
 #### **VWAP** (`VWAP/`)
 - **Input:** Trades
 - **Output:** `Vault\derived\vwap\okx\perps\{INSTID}\vwap_1m.jsonl`
 - **What:** Rolling (1h/4h) + Session (daily anchored at midnight UTC)
-- **Run:** `cd VWAP && python vwap_calculator_session.py --instId BTC-USDT-SWAP`
+- **Run:** `cd VWAP && python vwap_calculator.py --instId BTC-USDT-SWAP`
 
 #### **Untouched Wicks** (`Untouch_Wick/`)
 - **Input:** Trades (for candles)
@@ -177,14 +219,22 @@ State:  Vault\state\{metric}\{exchange}\{market}\{INSTID}.state.json
 
 **Usage:**
 ```bash
-# Full startup
-run_all.bat
+# Validate bootstrap without starting anything (exits 0 = ok, 1 = broken)
+python run_all.py --smoke-test
 
-# Check only
+# Check components only (non-interactive, CI-safe)
 python run_all.py --check-only
 
-# Skip collectors
+# Full startup (Windows)
+run_all.bat
+
+# Skip collectors (calculators only)
 python run_all.py --no-start
+```
+
+**Standalone verifier (CI-friendly):**
+```bash
+python bootstrap_check.py
 ```
 
 ---
@@ -231,15 +281,16 @@ THEN:
 
 **Morning Startup:**
 ```bash
-cd RaveQuant
-run_all.bat
+cd /path/to/rave-qquant
+python run_all.py --smoke-test   # verify bootstrap first
+run_all.bat                      # then start everything (Windows)
 # Wait 5 minutes for data accumulation
 ```
 
 **Every 30-60 Minutes:**
 ```bash
 cd Analysis
-run_dashboard.bat
+python signal_dashboard.py --instId BTC-USDT-SWAP
 # Check system health
 # All components FRESH = good
 # Any STALE = re-run calculators
@@ -248,7 +299,7 @@ run_dashboard.bat
 **When Looking for Entry:**
 ```bash
 cd Analysis
-run_confluence.bat
+python confluence_analyzer.py --instId BTC-USDT-SWAP
 # Shows ranked signals
 # Score >= 70 = high conviction
 # Score >= 85 = max conviction
@@ -336,6 +387,7 @@ run_confluence.bat
 RaveQuant\
 ├── run_all.py                           # Master runner
 ├── run_all.bat                          # Master batch
+├── bootstrap_check.py                   # Bootstrap verifier / smoke-run harness
 ├── README.md                            # This file
 │
 ├── Analysis\                            # Analysis tools
@@ -350,14 +402,14 @@ RaveQuant\
 │   └── requirements.txt
 │
 ├── L2_Bot\                              # Order book collector
-│   └── l2_exporter.py
+│   └── l2_exporter.py                  # ⚠️ Not yet committed — see DEPLOYMENT.md
 │
 ├── CVD\                                 # Volume delta
-│   └── cvd_calculator.py
+│   └── run_cvd_from_jsonl.py
 │
 ├── VWAP\                                # Volume-weighted price
-│   ├── vwap_calculator_session.py
-│   └── run_vwap_session.bat
+│   ├── vwap_calculator.py
+│   └── run_vwap.bat
 │
 ├── Untouch_Wick\                        # Your core edge
 │   ├── untouch_wick.py

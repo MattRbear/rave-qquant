@@ -8,7 +8,7 @@ MASTER RUNNER - Start All RaveQuant Systems
 5. Provide status dashboard
 
 Usage:
-    python run_all.py [--check-only] [--no-start]
+    python run_all.py [--check-only] [--no-start] [--smoke-test]
 """
 
 import subprocess
@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import List, Dict
 import json
 
-# Base paths
-RAVEQUANT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant")
+# Base path: directory containing this script (repo root)
+RAVEQUANT_BASE = Path(__file__).parent
 
 # Component paths
 COMPONENTS = {
@@ -88,25 +88,33 @@ def install_requirements():
     return True
 
 
-def check_components():
-    """Check if all components exist."""
-    print_header("CHECKING COMPONENTS")
-    
+def check_components(verbose: bool = True) -> List[str]:
+    """Check if all components exist.
+
+    Returns:
+        List of missing component names (empty list means all present).
+    """
+    if verbose:
+        print_header("CHECKING COMPONENTS")
+
     missing = []
-    
+
     for name, path in COMPONENTS.items():
         if path.exists():
-            print(f"✅ {name.upper()}: {path.name}")
+            if verbose:
+                print(f"✅ {name.upper()}: {path.name}")
         else:
-            print(f"❌ {name.upper()}: MISSING")
+            if verbose:
+                print(f"❌ {name.upper()}: MISSING — expected at {path}")
             missing.append(name)
-    
-    if missing:
-        print(f"\n⚠️ Missing components: {', '.join(missing)}")
-        return False
-    
-    print("\n✅ All components present\n")
-    return True
+
+    if verbose:
+        if missing:
+            print(f"\n⚠️ Missing components: {', '.join(missing)}")
+        else:
+            print("\n✅ All components present\n")
+
+    return missing
 
 
 def start_collector(name: str, script_path: Path, args: List[str] = None) -> subprocess.Popen:
@@ -230,58 +238,134 @@ def run_calculators(inst_ids: List[str]):
     print("\n✅ Calculator run complete\n")
 
 
+def run_smoke_test() -> bool:
+    """Run bootstrap smoke test — validate env without starting any processes.
+
+    Returns:
+        True if all checks pass, False if any check fails.
+    """
+    print_header("RAVEQUANT BOOTSTRAP SMOKE TEST")
+    all_pass = True
+
+    # 1. Python version
+    ok = check_python()
+    if not ok:
+        all_pass = False
+
+    # 2. Repo base exists
+    print(f"\n📁 Repo base: {RAVEQUANT_BASE}")
+    if RAVEQUANT_BASE.is_dir():
+        print("✅ Repo base directory found")
+    else:
+        print("❌ Repo base directory NOT found")
+        all_pass = False
+
+    # 3. Components
+    missing = check_components(verbose=True)
+    if missing:
+        all_pass = False
+
+    # 4. Requirements files
+    print_header("CHECKING REQUIREMENTS FILES")
+    for req in REQUIREMENTS:
+        if req.exists():
+            print(f"✅ {req.relative_to(RAVEQUANT_BASE)}")
+        else:
+            print(f"❌ MISSING: {req.relative_to(RAVEQUANT_BASE)}")
+            all_pass = False
+
+    # 5. Vault directory
+    print_header("CHECKING VAULT DIRECTORY")
+    vault = RAVEQUANT_BASE / 'Rave_Quant_Vault'
+    if vault.is_dir():
+        print(f"✅ Vault present: {vault.name}/")
+    else:
+        print(f"⚠️ Vault directory not found at {vault}")
+        print("   (Will be created automatically on first run)")
+
+    # 6. Analysis tools
+    print_header("CHECKING ANALYSIS TOOLS")
+    analysis_scripts = {
+        'signal_dashboard': RAVEQUANT_BASE / 'Analysis' / 'signal_dashboard.py',
+        'confluence_analyzer': RAVEQUANT_BASE / 'Analysis' / 'confluence_analyzer.py',
+    }
+    for name, path in analysis_scripts.items():
+        if path.exists():
+            print(f"✅ {name}: {path.name}")
+        else:
+            print(f"❌ {name}: MISSING — expected at {path}")
+            all_pass = False
+
+    # Summary
+    print_header("SMOKE TEST RESULT")
+    if all_pass:
+        print("✅ ALL CHECKS PASSED — bootstrap is clean\n")
+    else:
+        print("❌ ONE OR MORE CHECKS FAILED — see details above\n")
+
+    return all_pass
+
+
 def main():
     """Main entry point."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description='Master Runner - Start All RaveQuant Systems')
     parser.add_argument('--check-only', action='store_true', help='Only check components, don\'t start')
+    parser.add_argument('--smoke-test', action='store_true',
+                        help='Run bootstrap validation checks and exit (no processes started)')
     parser.add_argument('--no-start', action='store_true', help='Skip starting collectors')
     parser.add_argument('--instIds', nargs='+', default=['BTC-USDT-SWAP', 'ETH-USDT-SWAP'],
                        help='Instruments to process')
-    
+
     args = parser.parse_args()
-    
+
+    # Smoke test mode: validate only, then exit
+    if args.smoke_test:
+        passed = run_smoke_test()
+        sys.exit(0 if passed else 1)
+
     print_header("RAVEQUANT MASTER RUNNER")
-    
+
     # Check Python
     if not check_python():
         sys.exit(1)
-    
+
     # Check components
-    if not check_components():
+    missing = check_components()
+    if missing:
         print("\n⚠️ Some components missing. System may not function fully.")
-        response = input("Continue anyway? [y/N]: ")
-        if response.lower() != 'y':
+        if args.check_only:
             sys.exit(1)
-    
+        print("   Run with --smoke-test for a detailed report.")
+
     if args.check_only:
         print("\n✅ Check complete. Exiting.\n")
         sys.exit(0)
-    
+
     # Install requirements
     print("\n📦 Install requirements? [Y/n]: ", end='')
     response = input()
     if response.lower() != 'n':
         if not install_requirements():
             print("\n⚠️ Requirements installation failed. Continuing anyway...")
-    
+
     if args.no_start:
         print("\n⚠️ Skipping collector startup (--no-start)\n")
     else:
         # Start collectors
         processes = start_collectors()
-        
+
         if not processes:
             print("\n⚠️ No collectors started. Check component paths.")
-        
+
         # Give collectors time to accumulate data
         print("⏳ Waiting 30 seconds for data collection...")
         time.sleep(30)
-    
+
     # Run calculators
     run_calculators(args.instIds)
-    
+
     # Done
     print_header("STARTUP COMPLETE")
     print("✅ System operational")
