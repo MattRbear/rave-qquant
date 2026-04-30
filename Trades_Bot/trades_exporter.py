@@ -1,4 +1,4 @@
-"""
+r"""
 OKX Trades Exporter - PERPS Only
 ---------------------------------
 Captures raw perpetual swap trades from OKX WebSocket.
