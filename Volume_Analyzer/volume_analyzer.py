@@ -1,4 +1,4 @@
-"""
+r"""
 Volume Analyzer - Adversarial Volume Intelligence
 --------------------------------------------------
 Reads raw trades, computes volume metrics with intensity classification.

@@ -159,7 +159,7 @@ def strip_html(text: str) -> str:
 def detect_file_format(filepath: Path) -> str:
     """Detect file format from extension and content."""
     ext = filepath.suffix.lower()
-    
+
     if ext == '.json':
         return 'json'
     elif ext == '.jsonl':
@@ -175,13 +175,13 @@ def detect_file_format(filepath: Path) -> str:
 def safe_read_text(filepath: Path) -> Optional[str]:
     """Safely read text file with encoding fallback."""
     encodings = ['utf-8', 'utf-16', 'latin-1', 'cp1252']
-    
+
     for encoding in encodings:
         try:
             return filepath.read_text(encoding=encoding, errors='replace')
         except Exception:
             continue
-    
+
     logger.warning(f"Could not read file with any encoding: {filepath}")
     return None
 
@@ -193,22 +193,22 @@ def safe_read_text(filepath: Path) -> Optional[str]:
 def match_topics(text: str) -> tuple[Set[str], float]:
     """
     Match topics in text.
-    
+
     Returns:
         (matched_topics, match_score)
     """
     matched = set()
     score = 0.0
-    
+
     text_lower = text.lower()
-    
+
     for topic, pattern in TOPIC_PATTERNS.items():
         matches = pattern.findall(text_lower)
         if matches:
             matched.add(topic)
             # Score: number of matches × small weight
             score += len(matches) * 0.1
-    
+
     return matched, score
 
 
@@ -222,9 +222,9 @@ def extract_from_json(filepath: Path, input_root: Path) -> Iterator[Dict[str, An
         text = safe_read_text(filepath)
         if not text:
             return
-        
+
         data = json.loads(text)
-        
+
         # Try to detect structure
         if isinstance(data, list):
             # Array of messages
@@ -238,7 +238,7 @@ def extract_from_json(filepath: Path, input_root: Path) -> Iterator[Dict[str, An
                         'detected_format': 'json_array',
                         'message_index': idx
                     }
-        
+
         elif isinstance(data, dict):
             # Check for common chat export structures
             if 'messages' in data:
@@ -249,7 +249,7 @@ def extract_from_json(filepath: Path, input_root: Path) -> Iterator[Dict[str, An
                     if conv_id:
                         record['conversation_id'] = conv_id
                     yield record
-            
+
             elif 'conversations' in data:
                 for conv in data['conversations']:
                     conv_id = conv.get('id')
@@ -259,11 +259,11 @@ def extract_from_json(filepath: Path, input_root: Path) -> Iterator[Dict[str, An
                         if conv_id:
                             record['conversation_id'] = conv_id
                         yield record
-            
+
             else:
                 # Fallback: extract any text-like fields
                 yield format_record(data, filepath, input_root, 'json_dict', 0)
-    
+
     except json.JSONDecodeError as e:
         logger.warning(f"JSON decode error in {filepath}: {e}")
     except Exception as e:
@@ -278,14 +278,14 @@ def extract_from_jsonl(filepath: Path, input_root: Path) -> Iterator[Dict[str, A
                 line = line.strip()
                 if not line:
                     continue
-                
+
                 try:
                     data = json.loads(line)
                     yield format_record(data, filepath, input_root, 'jsonl', idx)
                 except json.JSONDecodeError:
                     # Skip malformed lines
                     continue
-    
+
     except Exception as e:
         logger.error(f"Error processing JSONL {filepath}: {e}")
 
@@ -296,16 +296,16 @@ def extract_from_plaintext(filepath: Path, input_root: Path) -> Iterator[Dict[st
         text = safe_read_text(filepath)
         if not text:
             return
-        
+
         # Try to detect message boundaries
         # Common patterns: "User:", "Assistant:", "Human:", "AI:", etc.
         message_pattern = re.compile(
             r'^(User|Assistant|Human|AI|System|You|Me):\s*',
             re.MULTILINE | re.IGNORECASE
         )
-        
+
         splits = message_pattern.split(text)
-        
+
         if len(splits) > 3:
             # Detected structured messages
             idx = 0
@@ -313,7 +313,7 @@ def extract_from_plaintext(filepath: Path, input_root: Path) -> Iterator[Dict[st
                 if i+1 < len(splits):
                     role = splits[i].lower()
                     content = splits[i+1].strip()
-                    
+
                     if content:
                         yield {
                             'text': content,
@@ -332,7 +332,7 @@ def extract_from_plaintext(filepath: Path, input_root: Path) -> Iterator[Dict[st
                 'message_index': 0,
                 'role': 'unknown'
             }
-    
+
     except Exception as e:
         logger.error(f"Error processing plaintext {filepath}: {e}")
 
@@ -343,10 +343,10 @@ def extract_from_html(filepath: Path, input_root: Path) -> Iterator[Dict[str, An
         text = safe_read_text(filepath)
         if not text:
             return
-        
+
         # Strip HTML
         clean_text = strip_html(text)
-        
+
         if clean_text:
             yield {
                 'text': clean_text,
@@ -355,7 +355,7 @@ def extract_from_html(filepath: Path, input_root: Path) -> Iterator[Dict[str, An
                 'message_index': 0,
                 'role': 'unknown'
             }
-    
+
     except Exception as e:
         logger.error(f"Error processing HTML {filepath}: {e}")
 
@@ -371,22 +371,22 @@ def format_record(data: Any, filepath: Path, input_root: Path, format_type: str,
         'timestamp': None,
         'text': ''
     }
-    
+
     if isinstance(data, str):
         record['text'] = data
         return record
-    
+
     if not isinstance(data, dict):
         record['text'] = str(data)
         return record
-    
+
     # Extract fields from dict
     # Text content
     for field in ['text', 'content', 'message', 'body', 'text_content']:
         if field in data:
             record['text'] = str(data[field])
             break
-    
+
     # Role
     if 'role' in data:
         role = str(data['role']).lower()
@@ -396,19 +396,19 @@ def format_record(data: Any, filepath: Path, input_root: Path, format_type: str,
         author = str(data['author']).lower()
         if author in ['user', 'assistant', 'system']:
             record['role'] = author
-    
+
     # Timestamp
     for field in ['timestamp', 'created_at', 'date', 'time']:
         if field in data:
             record['timestamp'] = str(data[field])
             break
-    
+
     # Conversation ID
     for field in ['conversation_id', 'conv_id', 'thread_id', 'chat_id']:
         if field in data:
             record['conversation_id'] = str(data[field])
             break
-    
+
     return record
 
 
@@ -418,7 +418,7 @@ def format_record(data: Any, filepath: Path, input_root: Path, format_type: str,
 
 class ChunkedWriter:
     """Writes records to multiple chunked JSON files."""
-    
+
     def __init__(self, output_dir: Path, max_chars: int):
         self.output_dir = output_dir
         self.max_chars = max_chars
@@ -427,63 +427,63 @@ class ChunkedWriter:
         self.current_size = 0
         self.current_records = []
         self.chunk_files = []
-        
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     def add_record(self, record: Dict[str, Any]):
         """Add a record, starting new chunk if needed."""
         # Generate record_id
         record_id_input = f"{record['source_file']}_{record.get('message_index', 0)}"
         record['record_id'] = stable_hash(record_id_input)
-        
+
         # Estimate size (conservative)
         record_json = json.dumps(record, ensure_ascii=False)
         record_size = len(record_json) + 10  # +10 for comma, brackets, newlines
-        
+
         # Check if need new chunk
         if self.current_size + record_size > self.max_chars:
             self._flush_chunk()
-        
+
         self.current_records.append(record)
         self.current_size += record_size
-    
+
     def _flush_chunk(self):
         """Write current chunk to file."""
         if not self.current_records:
             return
-        
+
         filename = f"nova_chat_{self.chunk_index:04d}.json"
         filepath = self.output_dir / filename
         temp_filepath = self.output_dir / f"{filename}.tmp"
-        
+
         try:
             # Write to temp file
             with open(temp_filepath, 'w', encoding='utf-8') as f:
                 json.dump(self.current_records, f, ensure_ascii=False, indent=2)
-            
+
             # Rename to final
             temp_filepath.rename(filepath)
-            
+
             # Track chunk metadata
             self.chunk_files.append({
                 'filename': filename,
                 'record_count': len(self.current_records),
                 'char_size': self.current_size
             })
-            
+
             logger.info(f"Wrote chunk {self.chunk_index}: {len(self.current_records)} records, {self.current_size:,} chars")
-            
+
             # Reset for next chunk
             self.chunk_index += 1
             self.current_records = []
             self.current_size = 0
-        
+
         except Exception as e:
             logger.error(f"Error writing chunk {self.chunk_index}: {e}")
             # Clean up temp file
             if temp_filepath.exists():
                 temp_filepath.unlink()
-    
+
     def close(self):
         """Flush remaining records and close."""
         self._flush_chunk()
@@ -499,10 +499,10 @@ def process_dataset(input_dir: Path, output_dir: Path, max_chars: int):
     logger.info(f"Starting extraction from: {input_dir}")
     logger.info(f"Output directory: {output_dir}")
     logger.info(f"Max chars per chunk: {max_chars:,}")
-    
+
     # Initialize
     writer = ChunkedWriter(output_dir, max_chars)
-    
+
     stats = {
         'total_files_scanned': 0,
         'total_records_kept': 0,
@@ -510,25 +510,25 @@ def process_dataset(input_dir: Path, output_dir: Path, max_chars: int):
         'topic_counts': defaultdict(int),
         'failed_files': []
     }
-    
+
     # Scan all files
     all_files = []
     for ext in ['*.json', '*.jsonl', '*.txt', '*.md', '*.html', '*.htm']:
         all_files.extend(input_dir.rglob(ext))
-    
+
     logger.info(f"Found {len(all_files)} files to process")
-    
+
     # Process each file
     for file_idx, filepath in enumerate(all_files, 1):
         stats['total_files_scanned'] += 1
-        
+
         if file_idx % 10 == 0:
             logger.info(f"Progress: {file_idx}/{len(all_files)} files, {stats['total_records_kept']} records kept")
-        
+
         try:
             # Detect format and extract records
             file_format = detect_file_format(filepath)
-            
+
             if file_format == 'json':
                 records = extract_from_json(filepath, input_dir)
             elif file_format == 'jsonl':
@@ -539,42 +539,42 @@ def process_dataset(input_dir: Path, output_dir: Path, max_chars: int):
                 records = extract_from_html(filepath, input_dir)
             else:
                 records = extract_from_plaintext(filepath, input_dir)  # Fallback
-            
+
             # Filter and write records
             for record in records:
                 text = record.get('text', '')
-                
+
                 if not text or len(text) < 10:
                     stats['total_records_dropped'] += 1
                     continue
-                
+
                 # Match topics
                 topics, score = match_topics(text)
-                
+
                 if topics and score > 0:
                     # Keep this record
                     record['topics'] = sorted(list(topics))
                     record['match_score'] = round(score, 2)
-                    
+
                     writer.add_record(record)
                     stats['total_records_kept'] += 1
-                    
+
                     # Update topic counts
                     for topic in topics:
                         stats['topic_counts'][topic] += 1
                 else:
                     stats['total_records_dropped'] += 1
-        
+
         except Exception as e:
             logger.error(f"Failed to process {filepath}: {e}")
             stats['failed_files'].append({
                 'file': str(filepath),
                 'error': str(e)
             })
-    
+
     # Close writer
     chunk_files = writer.close()
-    
+
     # Write manifest
     manifest = {
         'extraction_date': datetime.now().isoformat(),
@@ -587,11 +587,11 @@ def process_dataset(input_dir: Path, output_dir: Path, max_chars: int):
         'output_chunks': chunk_files,
         'failed_files': stats['failed_files']
     }
-    
+
     manifest_path = output_dir / 'manifest.json'
     with open(manifest_path, 'w', encoding='utf-8') as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
-    
+
     logger.info("=" * 60)
     logger.info("EXTRACTION COMPLETE")
     logger.info(f"Files scanned: {stats['total_files_scanned']}")
@@ -609,14 +609,14 @@ def process_dataset(input_dir: Path, output_dir: Path, max_chars: int):
 def run_self_test():
     """Run a quick self-test on synthetic data."""
     logger.info("Running self-test...")
-    
+
     # Create temp directories
     test_input = Path("test_input_temp")
     test_output = Path("test_output_temp")
-    
+
     test_input.mkdir(exist_ok=True)
     test_output.mkdir(exist_ok=True)
-    
+
     try:
         # Create test data
         test_data = [
@@ -627,35 +627,35 @@ def run_self_test():
             {"role": "user", "content": "This is irrelevant noise that should be filtered"},
             {"role": "user", "content": "Tell me about OSRS bots and automation strategies"},
         ]
-        
+
         # Write test file
         test_file = test_input / "test.jsonl"
         with open(test_file, 'w') as f:
             for item in test_data:
                 f.write(json.dumps(item) + '\n')
-        
+
         # Run extraction with small chunk size
         process_dataset(test_input, test_output, max_chars=500)
-        
+
         # Verify output
         output_files = list(test_output.glob("nova_chat_*.json"))
         manifest = test_output / "manifest.json"
-        
+
         assert len(output_files) > 0, "No output files created"
         assert manifest.exists(), "Manifest not created"
-        
+
         # Load and verify
         with open(manifest) as f:
             manifest_data = json.load(f)
-        
+
         assert manifest_data['total_records_kept'] >= 4, f"Expected 4+ records, got {manifest_data['total_records_kept']}"
         assert manifest_data['total_records_dropped'] >= 1, f"Expected 1+ dropped, got {manifest_data['total_records_dropped']}"
-        
+
         logger.info("✓ Self-test PASSED")
         logger.info(f"  Output files: {len(output_files)}")
         logger.info(f"  Records kept: {manifest_data['total_records_kept']}")
         logger.info(f"  Records dropped: {manifest_data['total_records_dropped']}")
-        
+
     finally:
         # Cleanup
         import shutil
@@ -696,21 +696,21 @@ def main():
         action='store_true',
         help='Run self-test mode on synthetic data'
     )
-    
+
     args = parser.parse_args()
-    
+
     if args.self_test:
         run_self_test()
         return
-    
+
     # Validate paths
     input_dir = Path(args.input)
     output_dir = Path(args.output)
-    
+
     if not input_dir.exists():
         logger.error(f"Input directory does not exist: {input_dir}")
         return
-    
+
     # Run extraction
     process_dataset(input_dir, output_dir, args.max_chars)
 
