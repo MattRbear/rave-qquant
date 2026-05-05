@@ -46,11 +46,6 @@ class Trade:
     ctType: str
     
     @property
-    def timestamp(self) -> datetime:
-        """Parse timestamp to datetime."""
-        return datetime.fromisoformat(self.timestamp_utc.replace('Z', '+00:00'))
-    
-    @property
     def price_decimal(self) -> Decimal:
         """Price as Decimal."""
         return Decimal(self.price)
@@ -137,7 +132,8 @@ def build_1m_candles(trades: List[Trade]) -> List[Candle]:
     minute_buckets: Dict[datetime, List[Trade]] = defaultdict(list)
     
     for trade in trades_sorted:
-        minute = floor_to_minute(trade.timestamp)
+        trade_ts = datetime.fromisoformat(trade.timestamp_utc.replace('Z', '+00:00'))
+        minute = floor_to_minute(trade_ts)
         minute_buckets[minute].append(trade)
     
     # Build candles
