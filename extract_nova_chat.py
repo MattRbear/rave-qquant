@@ -290,6 +290,13 @@ def extract_from_jsonl(filepath: Path, input_root: Path) -> Iterator[Dict[str, A
         logger.error(f"Error processing JSONL {filepath}: {e}")
 
 
+# Try to detect message boundaries
+# Common patterns: "User:", "Assistant:", "Human:", "AI:", etc.
+MESSAGE_PATTERN = re.compile(
+    r'^(User|Assistant|Human|AI|System|You|Me):\s*',
+    re.MULTILINE | re.IGNORECASE
+)
+
 def extract_from_plaintext(filepath: Path, input_root: Path) -> Iterator[Dict[str, Any]]:
     """Extract records from plaintext file."""
     try:
@@ -297,14 +304,7 @@ def extract_from_plaintext(filepath: Path, input_root: Path) -> Iterator[Dict[st
         if not text:
             return
         
-        # Try to detect message boundaries
-        # Common patterns: "User:", "Assistant:", "Human:", "AI:", etc.
-        message_pattern = re.compile(
-            r'^(User|Assistant|Human|AI|System|You|Me):\s*',
-            re.MULTILINE | re.IGNORECASE
-        )
-        
-        splits = message_pattern.split(text)
+        splits = MESSAGE_PATTERN.split(text)
         
         if len(splits) > 3:
             # Detected structured messages
