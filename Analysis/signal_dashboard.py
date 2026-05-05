@@ -16,6 +16,7 @@ OUTPUT: Console display (no file output)
 """
 
 import json
+import os
 import logging
 from pathlib import Path
 from decimal import Decimal
@@ -23,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict
 
 # Paths
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(os.environ.get("RAVEQUANT_VAULT", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
 
 # Freshness thresholds
 MAX_AGE_MINUTES = 15  # Data older than 15min = stale

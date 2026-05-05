@@ -13,13 +13,14 @@ Usage:
 
 import subprocess
 import sys
+import os
 import time
 from pathlib import Path
 from typing import List, Dict
 import json
 
 # Base paths
-RAVEQUANT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant")
+RAVEQUANT_BASE = Path(os.environ.get("RAVEQUANT_BASE", Path(__file__).resolve().parent))
 
 # Component paths
 COMPONENTS = {
