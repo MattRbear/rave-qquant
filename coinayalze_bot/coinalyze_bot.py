@@ -11,6 +11,7 @@ import json
 import requests
 import logging
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -372,20 +373,10 @@ class CoinalyzeBot:
 
 def load_api_key() -> Optional[str]:
     """Load API key from environment or env file."""
-    # Try environment variable first
-    api_key = os.getenv('COINALYZE_API_KEY')
+    # Load environment variables from a local .env file if present
+    load_dotenv()
     
-    if not api_key:
-        # Try loading from env file
-        env_file = Path(__file__).parent.parent.parent.parent / 'OneDrive' / 'Desktop' / 'all env.txt'
-        if env_file.exists():
-            with open(env_file, 'r') as f:
-                for line in f:
-                    if line.startswith('COINALYZE_API_KEY='):
-                        api_key = line.split('=')[1].strip()
-                        break
-    
-    return api_key
+    return os.getenv('COINALYZE_API_KEY')
 
 
 if __name__ == "__main__":
