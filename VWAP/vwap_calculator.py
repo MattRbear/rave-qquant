@@ -21,8 +21,8 @@ import json
 import logging
 from pathlib import Path
 from decimal import Decimal, getcontext
-from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Optional
+from datetime import datetime, timedelta
+from typing import List, Optional
 from dataclasses import dataclass
 from collections import deque
 import argparse
