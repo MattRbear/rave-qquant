@@ -240,12 +240,6 @@ class AnchoredWindow:
         self.anchor_time = anchor_time
         self.trades: List[Trade] = []
     
-    def set_anchor(self, anchor_time: datetime):
-        """Set anchor time and clear trades."""
-        self.anchor_time = anchor_time
-        self.trades.clear()
-        logger.info(f"AVWAP anchor set: {anchor_time.isoformat()}")
-    
     def add_trade(self, trade: Trade):
         """Add trade if after anchor time."""
         if self.anchor_time is None:
