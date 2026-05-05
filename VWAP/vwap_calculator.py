@@ -95,16 +95,6 @@ class VWAPState:
     last_session_date: Optional[str]  # YYYY-MM-DD for session tracking
 
 
-def floor_to_midnight_utc(ts: datetime) -> datetime:
-    """
-    Floor timestamp to midnight UTC (00:00:00).
-    
-    RESEARCH: "Standard institutional VWAP in crypto resets at 00:00 UTC.
-    This ensures global data parity and consistent support/resistance levels."
-    """
-    return ts.replace(hour=0, minute=0, second=0, microsecond=0)
-
-
 def floor_to_minute(ts: datetime) -> datetime:
     """Floor timestamp to nearest minute."""
     return ts.replace(second=0, microsecond=0)
