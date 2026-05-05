@@ -5,7 +5,7 @@ Captures raw perpetual swap trades from OKX WebSocket.
 Writes append-only JSONL with full contract metadata.
 
 INSTRUMENTS: BTC-USDT-SWAP, ETH-USDT-SWAP ONLY
-OUTPUT: Vault\raw\okx\trades_perps\{INSTID}\{DATE}.jsonl
+OUTPUT: Vault\\raw\\okx\\trades_perps\\{INSTID}\\{DATE}.jsonl
 """
 
 import asyncio
@@ -340,10 +340,20 @@ class TradesExporter:
         logger.info("Trades Exporter starting...")
         logger.info(f"Instruments: {INSTRUMENTS}")
         
-        # Fetch instrument metadata
+        # Fetch instrument metadata concurrently to avoid blocking the event loop
         logger.info("Fetching instrument metadata...")
-        for inst_id in INSTRUMENTS:
-            success = self.metadata.fetch_metadata(inst_id)
+
+        # Use asyncio.to_thread to run the synchronous fetch_metadata in separate threads
+        fetch_tasks = [
+            asyncio.to_thread(self.metadata.fetch_metadata, inst_id)
+            for inst_id in INSTRUMENTS
+        ]
+
+        # Await all fetches concurrently
+        results = await asyncio.gather(*fetch_tasks)
+
+        # Check if any fetches failed
+        for inst_id, success in zip(INSTRUMENTS, results):
             if not success:
                 logger.error(f"BUILD_FAIL: Failed to fetch metadata for {inst_id}")
                 return
