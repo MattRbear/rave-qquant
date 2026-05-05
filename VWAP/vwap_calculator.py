@@ -67,20 +67,6 @@ class Trade:
         return datetime.fromisoformat(self.timestamp_utc.replace('Z', '+00:00'))
     
     @property
-    def notional(self) -> Decimal:
-        """
-        Calculate notional value.
-        notional = qty_contracts × ctVal × price
-        
-        RESEARCH: This is the EXACT formula required for proper volume weighting.
-        """
-        qty = Decimal(self.qty_contracts)
-        ct_val = Decimal(self.ctVal)
-        price = Decimal(self.price)
-        
-        return qty * ct_val * price
-    
-    @property
     def price_decimal(self) -> Decimal:
         """Price as Decimal."""
         return Decimal(self.price)
@@ -152,9 +138,12 @@ class SessionWindow:
         sum_volume = Decimal('0')
         
         for trade in self.trades:
-            notional = trade.notional
+            qty = Decimal(trade.qty_contracts)
+            ct_val = Decimal(trade.ctVal)
             price = trade.price_decimal
             
+            notional = qty * ct_val * price
+
             sum_price_volume += price * notional
             sum_volume += notional
         
@@ -207,9 +196,12 @@ class RollingWindow:
         sum_volume = Decimal('0')
         
         for trade in self.trades:
-            notional = trade.notional
+            qty = Decimal(trade.qty_contracts)
+            ct_val = Decimal(trade.ctVal)
             price = trade.price_decimal
             
+            notional = qty * ct_val * price
+
             sum_price_volume += price * notional
             sum_volume += notional
         
@@ -266,9 +258,12 @@ class AnchoredWindow:
         sum_volume = Decimal('0')
         
         for trade in self.trades:
-            notional = trade.notional
+            qty = Decimal(trade.qty_contracts)
+            ct_val = Decimal(trade.ctVal)
             price = trade.price_decimal
             
+            notional = qty * ct_val * price
+
             sum_price_volume += price * notional
             sum_volume += notional
         
