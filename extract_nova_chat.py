@@ -15,7 +15,7 @@ import hashlib
 import argparse
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Iterator, Set
+from typing import Dict, Optional, Any, Iterator, Set
 from collections import defaultdict
 from datetime import datetime
 import html
