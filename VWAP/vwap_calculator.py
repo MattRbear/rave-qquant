@@ -95,6 +95,17 @@ class VWAPState:
     last_session_date: Optional[str]  # YYYY-MM-DD for session tracking
 
 
+@dataclass
+class VWAPMetrics:
+    """Encapsulates output metrics for VWAP."""
+    vwap_session: Optional[Decimal]
+    vwap_1h: Optional[Decimal]
+    vwap_4h: Optional[Decimal]
+    trade_count_session: int
+    trade_count_1h: int
+    trade_count_4h: int
+
+
 def floor_to_midnight_utc(ts: datetime) -> datetime:
     """
     Floor timestamp to midnight UTC (00:00:00).
@@ -370,13 +381,7 @@ def parse_trades(filepath: Path, state: VWAPState) -> List[Trade]:
     return trades
 
 
-def write_vwap_output(inst_id: str, minute_ts: datetime, 
-                      vwap_session: Optional[Decimal],
-                      vwap_1h: Optional[Decimal], 
-                      vwap_4h: Optional[Decimal],
-                      trade_count_session: int,
-                      trade_count_1h: int,
-                      trade_count_4h: int):
+def write_vwap_output(inst_id: str, minute_ts: datetime, metrics: VWAPMetrics):
     """
     Write VWAP output to derived JSONL.
     Deduplicates by checking if minute already written.
@@ -409,12 +414,12 @@ def write_vwap_output(inst_id: str, minute_ts: datetime,
         'instId': inst_id,
         'exchange': 'okx',
         'market': 'perp',
-        'vwap_session': str(vwap_session) if vwap_session is not None else None,
-        'vwap_1h': str(vwap_1h) if vwap_1h is not None else None,
-        'vwap_4h': str(vwap_4h) if vwap_4h is not None else None,
-        'trade_count_session': trade_count_session,
-        'trade_count_1h': trade_count_1h,
-        'trade_count_4h': trade_count_4h
+        'vwap_session': str(metrics.vwap_session) if metrics.vwap_session is not None else None,
+        'vwap_1h': str(metrics.vwap_1h) if metrics.vwap_1h is not None else None,
+        'vwap_4h': str(metrics.vwap_4h) if metrics.vwap_4h is not None else None,
+        'trade_count_session': metrics.trade_count_session,
+        'trade_count_1h': metrics.trade_count_1h,
+        'trade_count_4h': metrics.trade_count_4h
     }
     
     # Append to output file
@@ -514,15 +519,18 @@ def process_inst_id(inst_id: str, anchor_time: Optional[str] = None):
             vwap_4h = window_4h.calculate_vwap()
             
             # Write output
+            metrics = VWAPMetrics(
+                vwap_session=vwap_session,
+                vwap_1h=vwap_1h,
+                vwap_4h=vwap_4h,
+                trade_count_session=window_session.get_trade_count(),
+                trade_count_1h=window_1h.get_trade_count(),
+                trade_count_4h=window_4h.get_trade_count()
+            )
             write_vwap_output(
                 inst_id,
                 trade_minute,
-                vwap_session,
-                vwap_1h,
-                vwap_4h,
-                window_session.get_trade_count(),
-                window_1h.get_trade_count(),
-                window_4h.get_trade_count()
+                metrics
             )
             
             vwap_outputs += 1
