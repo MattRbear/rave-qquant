@@ -64,13 +64,6 @@ class Trade:
     def timestamp(self) -> datetime:
         return datetime.fromisoformat(self.timestamp_utc.replace('Z', '+00:00'))
     
-    @property
-    def notional_usd(self) -> Decimal:
-        """Calculate notional in USD."""
-        qty = Decimal(self.qty_contracts)
-        ct_val = Decimal(self.ctVal)
-        price = Decimal(self.price)
-        return qty * ct_val * price
 
 
 
@@ -392,7 +385,7 @@ def aggregate_minute(trades: List[Trade], minute_ts: datetime) -> Dict:
     prices = []
     
     for trade in trades:
-        notional = trade.notional_usd
+        notional = Decimal(trade.qty_contracts) * Decimal(trade.ctVal) * Decimal(trade.price)
         total_volume += notional
         
         # Classify by side
