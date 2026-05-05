@@ -69,11 +69,6 @@ class Trade:
     side: str  # 'buy' or 'sell' (AGGRESSOR side)
     
     @property
-    def size_usd(self) -> Decimal:
-        """Calculate size in USD (notional volume)."""
-        return Decimal(self.price) * Decimal(self.size)
-    
-    @property
     def timestamp(self) -> datetime:
         """Parse timestamp to datetime."""
         return datetime.fromisoformat(self.timestamp_utc.replace('Z', '+00:00'))
@@ -187,13 +182,15 @@ def calculate_cvd_updates(trades: List[Trade], start_cvd: Decimal) -> Dict[datet
             minute_buy_volume = Decimal('0')
             minute_sell_volume = Decimal('0')
         
+        trade_size_usd = Decimal(trade.price) * Decimal(trade.size)
+
         # Update CVD (cumulative)
         if trade.side == 'buy':
-            cvd += trade.size_usd
-            minute_buy_volume += trade.size_usd
+            cvd += trade_size_usd
+            minute_buy_volume += trade_size_usd
         elif trade.side == 'sell':
-            cvd -= trade.size_usd
-            minute_sell_volume += trade.size_usd
+            cvd -= trade_size_usd
+            minute_sell_volume += trade_size_usd
         else:
             logger.warning(f"Unknown side: {trade.side} for trade {trade.trade_id}")
             continue
