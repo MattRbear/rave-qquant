@@ -6,6 +6,7 @@ These are your highest conviction setups - the "on the money" entries.
 """
 
 import json
+import os
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -13,7 +14,7 @@ from typing import List, Dict
 import argparse
 
 # Paths
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(os.environ.get("RAVEQUANT_VAULT", Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"))
 
 # Logging
 logging.basicConfig(
