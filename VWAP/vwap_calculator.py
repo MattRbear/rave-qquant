@@ -45,6 +45,16 @@ logging.basicConfig(
 logger = logging.getLogger('VWAP_Calculator')
 
 
+
+def calculate_trade_notional(qty_contracts: str, ct_val: str, price: str) -> Decimal:
+    """
+    Calculate notional value.
+    notional = qty_contracts × ctVal × price
+
+    RESEARCH: This is the EXACT formula required for proper volume weighting.
+    """
+    return Decimal(qty_contracts) * Decimal(ct_val) * Decimal(price)
+
 @dataclass
 class Trade:
     """Trade record from JSONL."""
@@ -66,20 +76,7 @@ class Trade:
         """Parse timestamp to datetime."""
         return datetime.fromisoformat(self.timestamp_utc.replace('Z', '+00:00'))
     
-    @property
-    def notional(self) -> Decimal:
-        """
-        Calculate notional value.
-        notional = qty_contracts × ctVal × price
-        
-        RESEARCH: This is the EXACT formula required for proper volume weighting.
-        """
-        qty = Decimal(self.qty_contracts)
-        ct_val = Decimal(self.ctVal)
-        price = Decimal(self.price)
-        
-        return qty * ct_val * price
-    
+
     @property
     def price_decimal(self) -> Decimal:
         """Price as Decimal."""
@@ -152,7 +149,7 @@ class SessionWindow:
         sum_volume = Decimal('0')
         
         for trade in self.trades:
-            notional = trade.notional
+            notional = calculate_trade_notional(trade.qty_contracts, trade.ctVal, trade.price)
             price = trade.price_decimal
             
             sum_price_volume += price * notional
@@ -207,7 +204,7 @@ class RollingWindow:
         sum_volume = Decimal('0')
         
         for trade in self.trades:
-            notional = trade.notional
+            notional = calculate_trade_notional(trade.qty_contracts, trade.ctVal, trade.price)
             price = trade.price_decimal
             
             sum_price_volume += price * notional
@@ -266,7 +263,7 @@ class AnchoredWindow:
         sum_volume = Decimal('0')
         
         for trade in self.trades:
-            notional = trade.notional
+            notional = calculate_trade_notional(trade.qty_contracts, trade.ctVal, trade.price)
             price = trade.price_decimal
             
             sum_price_volume += price * notional
