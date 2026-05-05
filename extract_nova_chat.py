@@ -123,6 +123,11 @@ for topic, keywords in TOPICS.items():
             patterns.append(rf'\b{escaped}\b')
     TOPIC_PATTERNS[topic] = re.compile('|'.join(patterns), re.IGNORECASE)
 
+MESSAGE_PATTERN = re.compile(
+    r'^(User|Assistant|Human|AI|System|You|Me):\s*',
+    re.MULTILINE | re.IGNORECASE
+)
+
 
 # ============================================================================
 # LOGGING
@@ -299,12 +304,7 @@ def extract_from_plaintext(filepath: Path, input_root: Path) -> Iterator[Dict[st
         
         # Try to detect message boundaries
         # Common patterns: "User:", "Assistant:", "Human:", "AI:", etc.
-        message_pattern = re.compile(
-            r'^(User|Assistant|Human|AI|System|You|Me):\s*',
-            re.MULTILINE | re.IGNORECASE
-        )
-        
-        splits = message_pattern.split(text)
+        splits = MESSAGE_PATTERN.split(text)
         
         if len(splits) > 3:
             # Detected structured messages
