@@ -50,11 +50,6 @@ class Trade:
         """Parse timestamp to datetime."""
         return datetime.fromisoformat(self.timestamp_utc.replace('Z', '+00:00'))
     
-    @property
-    def price_decimal(self) -> Decimal:
-        """Price as Decimal."""
-        return Decimal(self.price)
-
 
 @dataclass
 class Candle:
@@ -147,11 +142,11 @@ def build_1m_candles(trades: List[Trade]) -> List[Candle]:
         window_end = window_start + timedelta(minutes=1)
         
         # OHLC from trades
-        prices = [t.price_decimal for t in minute_trades]
-        open_price = minute_trades[0].price_decimal  # First trade
+        prices = [Decimal(t.price) for t in minute_trades]
+        open_price = Decimal(minute_trades[0].price)  # First trade
         high_price = max(prices)
         low_price = min(prices)
-        close_price = minute_trades[-1].price_decimal  # Last trade
+        close_price = Decimal(minute_trades[-1].price)  # Last trade
         
         # Volume (sum qty_contracts)
         volume = sum(Decimal(t.qty_contracts) for t in minute_trades)
