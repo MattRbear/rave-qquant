@@ -1,4 +1,4 @@
-"""
+r"""
 CVD Calculator from JSONL - Research-Verified Implementation
 ------------------------------------------------------------
 Calculates Cumulative Volume Delta (CVD) using aggressor-tagged trades.

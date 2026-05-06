@@ -1,4 +1,4 @@
-"""
+r"""
 Candle Builder - UTC-Aligned OHLCV from Trades
 -----------------------------------------------
 Builds 1m candles from raw trades (event-time).

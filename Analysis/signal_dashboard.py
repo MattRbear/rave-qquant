@@ -1,4 +1,4 @@
-"""
+r"""
 SIGNAL DASHBOARD - Real-Time System Status
 ===========================================
 Shows current state of all metrics:

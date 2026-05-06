@@ -1,4 +1,4 @@
-"""
+r"""
 Wick Detector - Frozen Rules V1 (PATCHED)
 ------------------------------------------
 Detects ALL wicks (any size, no filters).

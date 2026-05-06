@@ -1,4 +1,4 @@
-"""
+r"""
 Coinalyze Data Bot - Adversarial Market Intelligence
 Fetches: OI, Liquidations, Funding, Bull/Bear Ratio
 Targets: BTC, ETH only
