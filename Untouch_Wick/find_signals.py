@@ -1,4 +1,4 @@
-"""
+r"""
 Signal Finder - Your Edge Pattern Query
 ---------------------------------------
 Find small wicks 20-40 min old, still untouched, surrounded by touched wicks.
