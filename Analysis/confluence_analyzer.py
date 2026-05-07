@@ -1,4 +1,4 @@
-"""
+r"""
 CONFLUENCE ANALYZER - Multi-Layer Signal Detection
 ===================================================
 Reads all data sources and identifies max conviction setups where:
