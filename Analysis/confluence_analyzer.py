@@ -11,14 +11,14 @@ Reads all data sources and identifies max conviction setups where:
 Outputs ranked trade signals with conviction scores.
 
 INPUT:
-- Vault\derived\wicks\okx\perps\{INSTID}\wicks_events.jsonl
-- Vault\derived\volume\okx\perps\{INSTID}\volume_1m.jsonl
-- Vault\derived\liquidity_buckets\okx\perps\{INSTID}\{DATE}.jsonl
-- Vault\derived\cvd\okx\perps\{INSTID}\cvd_1m.jsonl
-- Vault\derived\vwap\okx\perps\{INSTID}\vwap_1m.jsonl
+- Vault\\derived\\wicks\\okx\\perps\\{INSTID}\\wicks_events.jsonl
+- Vault\\derived\\volume\\okx\\perps\\{INSTID}\\volume_1m.jsonl
+- Vault\\derived\\liquidity_buckets\\okx\\perps\\{INSTID}\\{DATE}.jsonl
+- Vault\\derived\\cvd\\okx\\perps\\{INSTID}\\cvd_1m.jsonl
+- Vault\\derived\\vwap\\okx\\perps\\{INSTID}\\vwap_1m.jsonl
 
 OUTPUT:
-- C:\Users\M.R Bear\Documents\RaveQuant\Analysis\confluence_signals.jsonl
+- C:\\Users\\M.R Bear\\Documents\\RaveQuant\\Analysis\\confluence_signals.jsonl
 """
 
 import json
