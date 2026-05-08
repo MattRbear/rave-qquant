@@ -494,88 +494,66 @@ class ChunkedWriter:
 # MAIN PROCESSOR
 # ============================================================================
 
-def process_dataset(input_dir: Path, output_dir: Path, max_chars: int):
-    """Main processing pipeline."""
-    logger.info(f"Starting extraction from: {input_dir}")
-    logger.info(f"Output directory: {output_dir}")
-    logger.info(f"Max chars per chunk: {max_chars:,}")
-    
-    # Initialize
-    writer = ChunkedWriter(output_dir, max_chars)
-    
-    stats = {
-        'total_files_scanned': 0,
-        'total_records_kept': 0,
-        'total_records_dropped': 0,
-        'topic_counts': defaultdict(int),
-        'failed_files': []
-    }
-    
-    # Scan all files
+def _scan_files(input_dir: Path) -> list[Path]:
+    """Scan directory for supported file types."""
     all_files = []
     for ext in ['*.json', '*.jsonl', '*.txt', '*.md', '*.html', '*.htm']:
         all_files.extend(input_dir.rglob(ext))
-    
-    logger.info(f"Found {len(all_files)} files to process")
-    
-    # Process each file
-    for file_idx, filepath in enumerate(all_files, 1):
-        stats['total_files_scanned'] += 1
+    return all_files
+
+
+def _process_single_file(filepath: Path, input_dir: Path, writer: ChunkedWriter, stats: dict):
+    """Process a single file: extract, filter, and write records."""
+    try:
+        # Detect format and extract records
+        file_format = detect_file_format(filepath)
         
-        if file_idx % 10 == 0:
-            logger.info(f"Progress: {file_idx}/{len(all_files)} files, {stats['total_records_kept']} records kept")
+        if file_format == 'json':
+            records = extract_from_json(filepath, input_dir)
+        elif file_format == 'jsonl':
+            records = extract_from_jsonl(filepath, input_dir)
+        elif file_format == 'plaintext':
+            records = extract_from_plaintext(filepath, input_dir)
+        elif file_format == 'html':
+            records = extract_from_html(filepath, input_dir)
+        else:
+            records = extract_from_plaintext(filepath, input_dir)  # Fallback
         
-        try:
-            # Detect format and extract records
-            file_format = detect_file_format(filepath)
+        # Filter and write records
+        for record in records:
+            text = record.get('text', '')
             
-            if file_format == 'json':
-                records = extract_from_json(filepath, input_dir)
-            elif file_format == 'jsonl':
-                records = extract_from_jsonl(filepath, input_dir)
-            elif file_format == 'plaintext':
-                records = extract_from_plaintext(filepath, input_dir)
-            elif file_format == 'html':
-                records = extract_from_html(filepath, input_dir)
+            if not text or len(text) < 10:
+                stats['total_records_dropped'] += 1
+                continue
+            
+            # Match topics
+            topics, score = match_topics(text)
+
+            if topics and score > 0:
+                # Keep this record
+                record['topics'] = sorted(list(topics))
+                record['match_score'] = round(score, 2)
+                
+                writer.add_record(record)
+                stats['total_records_kept'] += 1
+                
+                # Update topic counts
+                for topic in topics:
+                    stats['topic_counts'][topic] += 1
             else:
-                records = extract_from_plaintext(filepath, input_dir)  # Fallback
-            
-            # Filter and write records
-            for record in records:
-                text = record.get('text', '')
-                
-                if not text or len(text) < 10:
-                    stats['total_records_dropped'] += 1
-                    continue
-                
-                # Match topics
-                topics, score = match_topics(text)
-                
-                if topics and score > 0:
-                    # Keep this record
-                    record['topics'] = sorted(list(topics))
-                    record['match_score'] = round(score, 2)
-                    
-                    writer.add_record(record)
-                    stats['total_records_kept'] += 1
-                    
-                    # Update topic counts
-                    for topic in topics:
-                        stats['topic_counts'][topic] += 1
-                else:
-                    stats['total_records_dropped'] += 1
-        
-        except Exception as e:
-            logger.error(f"Failed to process {filepath}: {e}")
-            stats['failed_files'].append({
-                'file': str(filepath),
-                'error': str(e)
-            })
+                stats['total_records_dropped'] += 1
     
-    # Close writer
-    chunk_files = writer.close()
-    
-    # Write manifest
+    except Exception as e:
+        logger.error(f"Failed to process {filepath}: {e}")
+        stats['failed_files'].append({
+            'file': str(filepath),
+            'error': str(e)
+        })
+
+
+def _write_manifest(output_dir: Path, input_dir: Path, stats: dict, chunk_files: list):
+    """Write the final manifest and log completion summary."""
     manifest = {
         'extraction_date': datetime.now().isoformat(),
         'input_directory': str(input_dir),
@@ -600,6 +578,43 @@ def process_dataset(input_dir: Path, output_dir: Path, max_chars: int):
     logger.info(f"Output chunks: {len(chunk_files)}")
     logger.info(f"Manifest written: {manifest_path}")
     logger.info("=" * 60)
+
+
+def process_dataset(input_dir: Path, output_dir: Path, max_chars: int):
+    """Main processing pipeline."""
+    logger.info(f"Starting extraction from: {input_dir}")
+    logger.info(f"Output directory: {output_dir}")
+    logger.info(f"Max chars per chunk: {max_chars:,}")
+
+    # Initialize
+    writer = ChunkedWriter(output_dir, max_chars)
+
+    stats = {
+        'total_files_scanned': 0,
+        'total_records_kept': 0,
+        'total_records_dropped': 0,
+        'topic_counts': defaultdict(int),
+        'failed_files': []
+    }
+
+    # Scan all files
+    all_files = _scan_files(input_dir)
+    logger.info(f"Found {len(all_files)} files to process")
+
+    # Process each file
+    for file_idx, filepath in enumerate(all_files, 1):
+        stats['total_files_scanned'] += 1
+
+        if file_idx % 10 == 0:
+            logger.info(f"Progress: {file_idx}/{len(all_files)} files, {stats['total_records_kept']} records kept")
+
+        _process_single_file(filepath, input_dir, writer, stats)
+
+    # Close writer
+    chunk_files = writer.close()
+
+    # Write manifest
+    _write_manifest(output_dir, input_dir, stats, chunk_files)
 
 
 # ============================================================================
