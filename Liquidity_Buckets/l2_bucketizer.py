@@ -497,6 +497,135 @@ def write_bucket_output(inst_id: str, snapshot: L2Snapshot, buckets_data: Dict):
         f.write(json.dumps(buckets_data) + '\n')
 
 
+def load_and_filter_snapshots(l2_files: List[Path], state: BucketState, inst_id: str) -> List[L2Snapshot]:
+    """Parse and filter L2 snapshots from files."""
+    snapshots = []
+    seen_timestamps = set()
+
+    for filepath in l2_files:
+        with open(filepath, 'r') as f:
+            for line in f:
+                if not line.strip():
+                    continue
+
+                snapshot = parse_l2_snapshot(line)
+                if not snapshot:
+                    continue
+
+                # Skip if before last processed
+                if state.last_processed_timestamp_utc:
+                    if snapshot.timestamp_utc <= state.last_processed_timestamp_utc:
+                        continue
+
+                # Dedup by timestamp
+                if snapshot.timestamp_utc in seen_timestamps:
+                    continue
+
+                seen_timestamps.add(snapshot.timestamp_utc)
+                snapshots.append(snapshot)
+
+    if not snapshots:
+        logger.info(f"No new snapshots to process for {inst_id}")
+        return []
+
+    # Sort by timestamp
+    snapshots.sort(key=lambda s: s.timestamp_utc)
+    logger.info(f"Processing {len(snapshots)} new snapshots")
+
+    return snapshots
+
+
+def process_single_snapshot(snapshot: L2Snapshot, ct_val: Decimal, state: BucketState, inst_id: str) -> bool:
+    """Process a single snapshot and write output. Returns True if successful."""
+    # Validate mid_price
+    if not snapshot.mid_price:
+        logger.warning(f"Skipping snapshot with null mid_price: {snapshot.timestamp_utc}")
+        return False
+
+    mid_price = Decimal(snapshot.mid_price)
+
+    # Calculate buckets
+    bid_notional, ask_notional, bid_base, ask_base = calculate_buckets(
+        snapshot, ct_val, mid_price
+    )
+
+    # Calculate top-of-book metrics (RESEARCH: Section 5.1-5.2)
+    # Extract best bid/ask from snapshot
+    best_bid_price = Decimal('0')
+    best_bid_vol = Decimal('0')
+    best_ask_price = Decimal('0')
+    best_ask_vol = Decimal('0')
+
+    if snapshot.bids and len(snapshot.bids[0]) >= 2:
+        best_bid_price = Decimal(snapshot.bids[0][0])
+        best_bid_vol = Decimal(snapshot.bids[0][1]) * ct_val
+
+    if snapshot.asks and len(snapshot.asks[0]) >= 2:
+        best_ask_price = Decimal(snapshot.asks[0][0])
+        best_ask_vol = Decimal(snapshot.asks[0][1]) * ct_val
+
+    # Calculate OBI (Order Book Imbalance)
+    obi = calculate_obi(best_bid_vol, best_ask_vol)
+
+    # Calculate Micro-Price (Stoikov weighted mid)
+    micro_price = calculate_micro_price(best_bid_price, best_ask_price,
+                                        best_bid_vol, best_ask_vol)
+
+
+    # Calculate imbalance
+    imbalance = calculate_imbalance(bid_notional, ask_notional)
+
+    # Calculate deltas
+    bid_delta, bid_delta_sig = calculate_deltas(bid_notional, state.prev_bid_notional)
+    ask_delta, ask_delta_sig = calculate_deltas(ask_notional, state.prev_ask_notional)
+
+    # Update young walls (with persistence + stale reset)
+    bid_young_age, bid_young_active = update_young_walls(
+        bid_notional, state, snapshot.timestamp, inst_id, 'bid'
+    )
+    ask_young_age, ask_young_active = update_young_walls(
+        ask_notional, state, snapshot.timestamp, inst_id, 'ask'
+    )
+
+    # Build output
+    buckets_data = {
+        'timestamp_utc': snapshot.timestamp_utc,
+        'exchange': 'okx',
+        'market': 'perp',
+        'instId': inst_id,
+        'mid_price': snapshot.mid_price,
+        'micro_price': micro_price,  # NEW: Stoikov weighted mid
+        'obi': obi,  # NEW: Top-of-book imbalance
+        'best_bid_price': str(best_bid_price),
+        'best_ask_price': str(best_ask_price),
+        'best_bid_vol': str(best_bid_vol),
+        'best_ask_vol': str(best_ask_vol),
+        'bands_bps': BANDS_BPS,
+        'bid_notional': bid_notional,
+        'ask_notional': ask_notional,
+        'bid_base': bid_base,
+        'ask_base': ask_base,
+        'imbalance': imbalance,
+        'bid_delta_notional': bid_delta,
+        'ask_delta_notional': ask_delta,
+        'bid_delta_significant': bid_delta_sig,
+        'ask_delta_significant': ask_delta_sig,
+        'bid_young_age_s': bid_young_age,
+        'ask_young_age_s': ask_young_age,
+        'bid_young_active': bid_young_active,
+        'ask_young_active': ask_young_active
+    }
+
+    # Write output
+    write_bucket_output(inst_id, snapshot, buckets_data)
+
+    # Update state for next iteration
+    state.prev_bid_notional = bid_notional
+    state.prev_ask_notional = ask_notional
+    state.last_processed_timestamp_utc = snapshot.timestamp_utc
+    return True
+
+
 def process_inst_id(inst_id: str, since_minutes: int):
     """
     Main processing loop (incremental + deterministic).
@@ -539,132 +668,16 @@ def process_inst_id(inst_id: str, since_minutes: int):
     logger.info(f"Found {len(l2_files)} L2 files")
 
     
-    # Parse all snapshots
-    snapshots = []
-    seen_timestamps = set()
-    
-    for filepath in l2_files:
-        with open(filepath, 'r') as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                
-                snapshot = parse_l2_snapshot(line)
-                if not snapshot:
-                    continue
-                
-                # Skip if before last processed
-                if state.last_processed_timestamp_utc:
-                    if snapshot.timestamp_utc <= state.last_processed_timestamp_utc:
-                        continue
-                
-                # Dedup by timestamp
-                if snapshot.timestamp_utc in seen_timestamps:
-                    continue
-                
-                seen_timestamps.add(snapshot.timestamp_utc)
-                snapshots.append(snapshot)
-    
+    snapshots = load_and_filter_snapshots(l2_files, state, inst_id)
     if not snapshots:
-        logger.info(f"No new snapshots to process for {inst_id}")
         return
-    
-    # Sort by timestamp
-    snapshots.sort(key=lambda s: s.timestamp_utc)
-    
-    logger.info(f"Processing {len(snapshots)} new snapshots")
     
     # Process each snapshot
     outputs_written = 0
     
     for snapshot in snapshots:
-        # Validate mid_price
-        if not snapshot.mid_price:
-            logger.warning(f"Skipping snapshot with null mid_price: {snapshot.timestamp_utc}")
-            continue
-        
-        mid_price = Decimal(snapshot.mid_price)
-        
-        # Calculate buckets
-        bid_notional, ask_notional, bid_base, ask_base = calculate_buckets(
-            snapshot, ct_val, mid_price
-        )
-        
-        # Calculate top-of-book metrics (RESEARCH: Section 5.1-5.2)
-        # Extract best bid/ask from snapshot
-        best_bid_price = Decimal('0')
-        best_bid_vol = Decimal('0')
-        best_ask_price = Decimal('0')
-        best_ask_vol = Decimal('0')
-        
-        if snapshot.bids and len(snapshot.bids[0]) >= 2:
-            best_bid_price = Decimal(snapshot.bids[0][0])
-            best_bid_vol = Decimal(snapshot.bids[0][1]) * ct_val
-        
-        if snapshot.asks and len(snapshot.asks[0]) >= 2:
-            best_ask_price = Decimal(snapshot.asks[0][0])
-            best_ask_vol = Decimal(snapshot.asks[0][1]) * ct_val
-        
-        # Calculate OBI (Order Book Imbalance)
-        obi = calculate_obi(best_bid_vol, best_ask_vol)
-        
-        # Calculate Micro-Price (Stoikov weighted mid)
-        micro_price = calculate_micro_price(best_bid_price, best_ask_price, 
-                                            best_bid_vol, best_ask_vol)
-
-        
-        # Calculate imbalance
-        imbalance = calculate_imbalance(bid_notional, ask_notional)
-        
-        # Calculate deltas
-        bid_delta, bid_delta_sig = calculate_deltas(bid_notional, state.prev_bid_notional)
-        ask_delta, ask_delta_sig = calculate_deltas(ask_notional, state.prev_ask_notional)
-        
-        # Update young walls (with persistence + stale reset)
-        bid_young_age, bid_young_active = update_young_walls(
-            bid_notional, state, snapshot.timestamp, inst_id, 'bid'
-        )
-        ask_young_age, ask_young_active = update_young_walls(
-            ask_notional, state, snapshot.timestamp, inst_id, 'ask'
-        )
-        
-        # Build output
-        buckets_data = {
-            'timestamp_utc': snapshot.timestamp_utc,
-            'exchange': 'okx',
-            'market': 'perp',
-            'instId': inst_id,
-            'mid_price': snapshot.mid_price,
-            'micro_price': micro_price,  # NEW: Stoikov weighted mid
-            'obi': obi,  # NEW: Top-of-book imbalance
-            'best_bid_price': str(best_bid_price),
-            'best_ask_price': str(best_ask_price),
-            'best_bid_vol': str(best_bid_vol),
-            'best_ask_vol': str(best_ask_vol),
-            'bands_bps': BANDS_BPS,
-            'bid_notional': bid_notional,
-            'ask_notional': ask_notional,
-            'bid_base': bid_base,
-            'ask_base': ask_base,
-            'imbalance': imbalance,
-            'bid_delta_notional': bid_delta,
-            'ask_delta_notional': ask_delta,
-            'bid_delta_significant': bid_delta_sig,
-            'ask_delta_significant': ask_delta_sig,
-            'bid_young_age_s': bid_young_age,
-            'ask_young_age_s': ask_young_age,
-            'bid_young_active': bid_young_active,
-            'ask_young_active': ask_young_active
-        }
-        
-        # Write output
-        write_bucket_output(inst_id, snapshot, buckets_data)
-        outputs_written += 1
-        
-        # Update state for next iteration
-        state.prev_bid_notional = bid_notional
-        state.prev_ask_notional = ask_notional
-        state.last_processed_timestamp_utc = snapshot.timestamp_utc
+        if process_single_snapshot(snapshot, ct_val, state, inst_id):
+            outputs_written += 1
     
     # Save state
     save_state(inst_id, state)
