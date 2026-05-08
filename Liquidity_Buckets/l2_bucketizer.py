@@ -497,6 +497,56 @@ def write_bucket_output(inst_id: str, snapshot: L2Snapshot, buckets_data: Dict):
         f.write(json.dumps(buckets_data) + '\n')
 
 
+def get_new_snapshots(l2_files: List[Path], last_processed: Optional[str]) -> List[L2Snapshot]:
+    """Parse, filter, dedup, and sort snapshots from L2 files."""
+    snapshots = []
+    seen_timestamps = set()
+
+    for filepath in l2_files:
+        with open(filepath, 'r') as f:
+            for line in f:
+                if not line.strip():
+                    continue
+
+                snapshot = parse_l2_snapshot(line)
+                if not snapshot:
+                    continue
+
+                # Skip if before last processed
+                if last_processed:
+                    if snapshot.timestamp_utc <= last_processed:
+                        continue
+
+                # Dedup by timestamp
+                if snapshot.timestamp_utc in seen_timestamps:
+                    continue
+
+                seen_timestamps.add(snapshot.timestamp_utc)
+                snapshots.append(snapshot)
+
+    # Sort by timestamp
+    snapshots.sort(key=lambda s: s.timestamp_utc)
+    return snapshots
+
+
+def extract_best_bid_ask(snapshot: L2Snapshot, ct_val: Decimal) -> Tuple[Decimal, Decimal, Decimal, Decimal]:
+    """Extract best bid/ask prices and compute volumes from a snapshot."""
+    best_bid_price = Decimal('0')
+    best_bid_vol = Decimal('0')
+    best_ask_price = Decimal('0')
+    best_ask_vol = Decimal('0')
+
+    if snapshot.bids and len(snapshot.bids[0]) >= 2:
+        best_bid_price = Decimal(snapshot.bids[0][0])
+        best_bid_vol = Decimal(snapshot.bids[0][1]) * ct_val
+
+    if snapshot.asks and len(snapshot.asks[0]) >= 2:
+        best_ask_price = Decimal(snapshot.asks[0][0])
+        best_ask_vol = Decimal(snapshot.asks[0][1]) * ct_val
+
+    return best_bid_price, best_bid_vol, best_ask_price, best_ask_vol
+
+
 def process_inst_id(inst_id: str, since_minutes: int):
     """
     Main processing loop (incremental + deterministic).
@@ -539,39 +589,13 @@ def process_inst_id(inst_id: str, since_minutes: int):
     logger.info(f"Found {len(l2_files)} L2 files")
 
     
-    # Parse all snapshots
-    snapshots = []
-    seen_timestamps = set()
-    
-    for filepath in l2_files:
-        with open(filepath, 'r') as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                
-                snapshot = parse_l2_snapshot(line)
-                if not snapshot:
-                    continue
-                
-                # Skip if before last processed
-                if state.last_processed_timestamp_utc:
-                    if snapshot.timestamp_utc <= state.last_processed_timestamp_utc:
-                        continue
-                
-                # Dedup by timestamp
-                if snapshot.timestamp_utc in seen_timestamps:
-                    continue
-                
-                seen_timestamps.add(snapshot.timestamp_utc)
-                snapshots.append(snapshot)
+    # Parse and filter snapshots
+    snapshots = get_new_snapshots(l2_files, state.last_processed_timestamp_utc)
     
     if not snapshots:
         logger.info(f"No new snapshots to process for {inst_id}")
         return
-    
-    # Sort by timestamp
-    snapshots.sort(key=lambda s: s.timestamp_utc)
-    
+
     logger.info(f"Processing {len(snapshots)} new snapshots")
     
     # Process each snapshot
@@ -592,18 +616,9 @@ def process_inst_id(inst_id: str, since_minutes: int):
         
         # Calculate top-of-book metrics (RESEARCH: Section 5.1-5.2)
         # Extract best bid/ask from snapshot
-        best_bid_price = Decimal('0')
-        best_bid_vol = Decimal('0')
-        best_ask_price = Decimal('0')
-        best_ask_vol = Decimal('0')
-        
-        if snapshot.bids and len(snapshot.bids[0]) >= 2:
-            best_bid_price = Decimal(snapshot.bids[0][0])
-            best_bid_vol = Decimal(snapshot.bids[0][1]) * ct_val
-        
-        if snapshot.asks and len(snapshot.asks[0]) >= 2:
-            best_ask_price = Decimal(snapshot.asks[0][0])
-            best_ask_vol = Decimal(snapshot.asks[0][1]) * ct_val
+        best_bid_price, best_bid_vol, best_ask_price, best_ask_vol = extract_best_bid_ask(
+            snapshot, ct_val
+        )
         
         # Calculate OBI (Order Book Imbalance)
         obi = calculate_obi(best_bid_vol, best_ask_vol)
