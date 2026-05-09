@@ -19,7 +19,7 @@ from typing import List, Dict
 import json
 
 # Base paths
-RAVEQUANT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant")
+RAVEQUANT_BASE = Path(__file__).resolve().parent
 
 # Component paths
 COMPONENTS = {
@@ -237,11 +237,24 @@ def main():
     parser = argparse.ArgumentParser(description='Master Runner - Start All RaveQuant Systems')
     parser.add_argument('--check-only', action='store_true', help='Only check components, don\'t start')
     parser.add_argument('--no-start', action='store_true', help='Skip starting collectors')
-    parser.add_argument('--instIds', nargs='+', default=['BTC-USDT-SWAP', 'ETH-USDT-SWAP'],
-                       help='Instruments to process')
+    parser.add_argument('--instIds', nargs='+', default=None,
+                       help='Instruments to process (defaults to symbols.json if exists, else BTC/ETH)')
     
     args = parser.parse_args()
     
+    if args.instIds is None:
+        symbols_path = Path("symbols.json")
+        if symbols_path.exists():
+            try:
+                import json
+                with open(symbols_path, "r") as f:
+                    args.instIds = json.load(f)
+            except Exception as e:
+                print(f"Error loading symbols.json: {e}")
+                args.instIds = ['BTC-USDT-SWAP', 'ETH-USDT-SWAP']
+        else:
+            args.instIds = ['BTC-USDT-SWAP', 'ETH-USDT-SWAP']
+
     print_header("RAVEQUANT MASTER RUNNER")
     
     # Check Python

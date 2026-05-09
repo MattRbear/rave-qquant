@@ -40,7 +40,7 @@ logging.basicConfig(
 logger = logging.getLogger('CVD_Calculator')
 
 # Paths
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"
 
 
 @dataclass

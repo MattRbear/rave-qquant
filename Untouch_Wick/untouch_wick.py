@@ -21,7 +21,7 @@ from candle_builder import Trade, Candle, build_all_timeframes
 from wick_detector import WickEvent, detect_wicks
 
 # Paths
-VAULT_BASE = Path(r"C:\Users\M.R Bear\Documents\RaveQuant\Rave_Quant_Vault")
+VAULT_BASE = Path(__file__).resolve().parent.parent / "Rave_Quant_Vault"
 
 # Configuration
 INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
